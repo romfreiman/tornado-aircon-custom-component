@@ -1,0 +1,5 @@
+aiohttp
+python-dotenv
+pycryptodome
+ruamel.yaml>=0.15.78,<=0.16.8
+homeassistant

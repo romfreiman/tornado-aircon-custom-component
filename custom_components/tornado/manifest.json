@@ -1,0 +1,12 @@
+{
+    "domain": "tornado-control",
+    "name": "Tornado Air Conditioner",
+    "config_flow": true,
+    "documentation": "https://github.com/romfreiman/tornado-control",
+    "requirements": ["aiohttp"],
+    "dependencies": [],
+    "codeowners": ["@yourusername"],
+    "version": "1.0.0",
+    "iot_class": "cloud_polling",
+    "icon": "tornado.png"
+}
