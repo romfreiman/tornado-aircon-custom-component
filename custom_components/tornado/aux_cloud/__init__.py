@@ -321,11 +321,33 @@ class AuxCloudAPI:
                     _LOGGER.error("Failed to query device temperature: %s", data)
                     raise Exception(f"Failed to query device temperature: {data}")
 
-    async def _act_device_params(self, device: dict, act: str, params: list[str] = [], vals: list[str] = []) -> Dict[str, Any]:
-        """Internal method to get or set device parameters."""
+    async def _act_device_params(
+        self,
+        device: dict[str, Any],
+        act: str,
+        params: list[str] = None,
+        vals: list[list[dict[str, Any]]] = None,
+    ) -> dict[str, Any]:
+        """Act on device parameters by getting or setting them.
+
+        Args:
+            device: Device information dictionary
+            act: Action to perform ('get' or 'set')
+            params: List of parameter names
+            vals: List of parameter values for set operations
+
+        Returns:
+            Dictionary mapping parameter names to their values
+
+        Raises:
+            Exception: If the API request fails or params/vals length mismatch
+        """
+        params = params or []
+        vals = vals or []
         _LOGGER.debug("Acting on device parameters for device: %s, action: %s", device, act)
+
         if act == "set" and len(params) != len(vals):
-            raise Exception("Params and Vals must have the same length")
+            raise ValueError("Params and Vals must have the same length")
 
         async with aiohttp.ClientSession() as session:
             cookie = json.loads(base64.b64decode(device['cookie'].encode()))
@@ -346,7 +368,7 @@ class AuxCloudAPI:
                     "header": self._get_directive_header(
                         namespace="DNA.KeyValueControl",
                         name="KeyValueControl",
-                        message_id_prefix=device['endpointId']
+                        message_id_prefix=device['endpointId'],
                     ),
                     "endpoint": {
                         "devicePairedInfo": {
@@ -354,7 +376,7 @@ class AuxCloudAPI:
                             "pid": device['productId'],
                             "mac": device['mac'],
                             "devicetypeflag": device['devicetypeFlag'],
-                            "cookie": mapped_cookie
+                            "cookie": mapped_cookie,
                         },
                         "endpointId": device['endpointId'],
                         "cookie": {},
@@ -363,47 +385,64 @@ class AuxCloudAPI:
                     "payload": {
                         "act": act,
                         "params": params,
-                        "vals": vals
+                        "vals": vals,
                     },
                 }
             }
-            # Special case for getting ambient mode
+
             if self._is_ambient_mode(params):
                 data['directive']['payload']['did'] = device['endpointId']
                 data['directive']['payload']['vals'] = [[{'val': 0, 'idx': 1}]]
 
             async with session.post(
-                f'{self.url}/device/control/v2/sdkcontrol',
+                f"{self.url}/device/control/v2/sdkcontrol",
                 params={"license": LICENSE},
                 data=json.dumps(data, separators=(',', ':')),
                 headers=self._get_headers(),
             ) as response:
-                data = await response.text()
-                json_data = json.loads(data)
+                response_text = await response.text()
+                json_data = json.loads(response_text)
 
-                if ('event' in json_data and 
-                    'payload' in json_data['event'] and 
-                    'data' in json_data['event']['payload']):
+                if all(key in json_data.get('event', {}).get('payload', {})
+                       for key in ('data',)):
                     response = json.loads(json_data['event']['payload']['data'])
-                    _LOGGER.debug("Acted on device parameters for device %s: %s", device, response)
-                    return {response['params'][i]: response['vals'][i][0]['val'] 
-                            for i in range(len(response['params']))}
-                raise Exception(f"Failed to {act} device parameters: {data}")
+                    _LOGGER.debug("Acted on device parameters for device %s: %s",
+                                device, response)
+                    return {
+                        response['params'][i]: response['vals'][i][0]['val']
+                        for i in range(len(response['params']))
+                    }
+
+                raise ValueError(f"Failed to {act} device parameters: {response_text}")
 
     def _is_ambient_mode(self, params: list[str]) -> bool:
-        """Check if the parameters indicate ambient mode."""
+        """Check if the parameters indicate ambient mode.
+
+        Args:
+            params: List of parameter names
+
+        Returns:
+            True if parameters indicate ambient mode, False otherwise
+        """
         return len(params) == 1 and params[0] == 'mode'
 
     async def refresh(self) -> None:
-        """Refresh all data."""
+        """Refresh all family and device data.
+
+        Raises:
+            Exception: If refresh operation fails
+        """
         _LOGGER.info("Refreshing all data")
         try:
             family_data = await self.list_families()
-            tasks = []
-            for family in family_data:
-                tasks.append(self.list_devices(family['familyid']))
-                tasks.append(self.list_devices(family['familyid'], shared=True))
+            tasks = [
+                self.list_devices(family['familyid'])
+                for family in family_data
+            ] + [
+                self.list_devices(family['familyid'], shared=True)
+                for family in family_data
+            ]
             await asyncio.gather(*tasks)
-        except Exception as ex:
-            _LOGGER.error("Error refreshing data: %s", str(ex))
+        except Exception as err:
+            _LOGGER.error("Error refreshing data: %s", str(err))
             raise

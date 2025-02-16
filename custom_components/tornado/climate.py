@@ -16,10 +16,7 @@ from homeassistant.components.climate import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     ATTR_TEMPERATURE,
-    Platform,
     UnitOfTemperature,
-    PRECISION_WHOLE,
-    PRECISION_HALVES,
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -58,7 +55,7 @@ SWING_MODES = ["off", "vertical", "horizontal", "both"]
 PARAMETER_VALIDATION = {
     "ac_vdir": {"type": int, "range": (0, 1), "required": False},
     "ac_hdir": {"type": int, "range": (0, 1), "required": False},
-    "ac_mark": {"type": int, "range": (0, 4), "required": True}, #Fan modes
+    "ac_mark": {"type": int, "range": (0, 4), "required": True},  # Fan modes
     "ac_mode": {"type": int, "range": (0, 4), "required": True},
     "ac_slp": {"type": int, "range": (0, 1), "required": True},
     "pwr": {"type": int, "range": (0, 1), "required": True},
@@ -112,6 +109,7 @@ class AuxCloudDataUpdateCoordinator(DataUpdateCoordinator):
     """Class to manage fetching AuxCloud data."""
 
     def __init__(self, hass: HomeAssistant, api: AuxCloudAPI) -> None:
+        """Initialize the coordinator."""
         self.api = api
         super().__init__(
             hass,
@@ -152,7 +150,7 @@ class TornadoClimateEntity(ClimateEntity):
             "name": f"Tornado AC {device.get('friendlyName')}",
             "manufacturer": "Tornado",
             "model": "AUX Cloud",
-            #"sw_version": device.get("version", "Unknown"),
+            # "sw_version": device.get("version", "Unknown"),
         }
         
         self._attr_supported_features = (
@@ -208,11 +206,9 @@ class TornadoClimateEntity(ClimateEntity):
         return "mdi:air-conditioner"    
 
     @property
-    def device_info(self):
+    def device_info(self) -> dict:
         """Return device specific attributes."""
         return self._attr_device_info
-
-
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
