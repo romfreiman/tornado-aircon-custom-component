@@ -3,8 +3,7 @@ from __future__ import annotations
 
 import logging
 from datetime import timedelta
-from typing import Any, Dict, Optional
-from enum import IntFlag, StrEnum
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.climate import (
     ClimateEntity,
@@ -13,17 +12,20 @@ from homeassistant.components.climate import (
     HVACAction,
     HVACMode,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     ATTR_TEMPERATURE,
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import DOMAIN
-from .aux_cloud import AuxCloudAPI
+
+if TYPE_CHECKING:
+    from homeassistant.config_entries import ConfigEntry
+    from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+    from .aux_cloud import AuxCloudAPI
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -94,7 +96,7 @@ async def async_setup_entry(
                     config_entry
                 ))
             except Exception as ex:
-                _LOGGER.error(
+                _LOGGER.exception(
                     "Error setting up device %s: %s",
                     device.get("endpointId"),
                     str(ex)
@@ -103,7 +105,7 @@ async def async_setup_entry(
         async_add_entities(entities)
 
     except Exception as ex:
-        _LOGGER.error("Error setting up Tornado climate platform: %s", str(ex))
+        _LOGGER.exception("Error setting up Tornado climate platform: %s", str(ex))
 
 class AuxCloudDataUpdateCoordinator(DataUpdateCoordinator):
     """Class to manage fetching AuxCloud data."""
@@ -125,8 +127,9 @@ class AuxCloudDataUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.debug("Coordinator fetched data: %s", devices)
             return {device["endpointId"]: device for device in devices}
         except Exception as err:
-            _LOGGER.error("Error fetching data: %s", err)
-            raise UpdateFailed(f"Error fetching data: {err}")
+            _LOGGER.exception("Error fetching data: %s", err)
+            msg = f"Error fetching data: {err}"
+            raise UpdateFailed(msg)
 
 class TornadoClimateEntity(ClimateEntity):
     """Representation of a Tornado AC Climate device."""
@@ -152,7 +155,7 @@ class TornadoClimateEntity(ClimateEntity):
             "model": "AUX Cloud",
             # "sw_version": device.get("version", "Unknown"),
         }
-        
+
         self._attr_supported_features = (
             ClimateEntityFeature.TARGET_TEMPERATURE |
             ClimateEntityFeature.FAN_MODE |
@@ -162,7 +165,7 @@ class TornadoClimateEntity(ClimateEntity):
         )
 
         # Set available modes and temperature limits
-        self._attr_hvac_modes = list(HVAC_MODE_MAP.values()) + [HVACMode.OFF]
+        self._attr_hvac_modes = [*list(HVAC_MODE_MAP.values()), HVACMode.OFF]
         self._attr_hvac_mode = HVACMode.OFF
         self._attr_fan_modes = list(FAN_MODE_MAP.values())
         self._attr_fan_mode = FAN_MODE_MAP[0]
@@ -203,7 +206,7 @@ class TornadoClimateEntity(ClimateEntity):
     @property
     def icon(self) -> str:
         """Return the icon to use in the frontend."""
-        return "mdi:air-conditioner"    
+        return "mdi:air-conditioner"
 
     @property
     def device_info(self) -> dict:
@@ -218,9 +221,9 @@ class TornadoClimateEntity(ClimateEntity):
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from coordinator."""
-        _LOGGER.debug("Handling coordinator update for device %s with data: %s", 
+        _LOGGER.debug("Handling coordinator update for device %s with data: %s",
                      self._device_id, self._device)
-        
+
         if not self._device:
             self._attr_available = False
             self.async_write_ha_state()
@@ -228,7 +231,7 @@ class TornadoClimateEntity(ClimateEntity):
 
         try:
             device_params = self._device.get("params", {})
-            
+
             # Update power and HVAC mode/action
             if not device_params.get("pwr", 0):
                 self._attr_hvac_mode = HVACMode.OFF
@@ -256,7 +259,7 @@ class TornadoClimateEntity(ClimateEntity):
             h_dir = device_params.get("ac_hdir", 0)
             self._attr_swing_mode = {
                 (0, 0): "off",
-                (1, 0): "vertical", 
+                (1, 0): "vertical",
                 (0, 1): "horizontal",
                 (1, 1): "both"
             }.get((v_dir, h_dir), "off")
@@ -274,7 +277,7 @@ class TornadoClimateEntity(ClimateEntity):
             )
 
         except Exception as ex:
-            _LOGGER.error("Error updating state for %s: %s", self._device_id, ex)
+            _LOGGER.exception("Error updating state for %s: %s", self._device_id, ex)
             self._attr_available = False
 
         self.async_write_ha_state()
@@ -288,7 +291,7 @@ class TornadoClimateEntity(ClimateEntity):
         try:
             await self._client.set_device_params(self._device, params)
         except Exception as ex:
-            _LOGGER.error(
+            _LOGGER.exception(
                 "Error setting parameters for %s: %s",
                 self._device.get("endpointId", "Unknown"),
                 str(ex)
@@ -332,7 +335,7 @@ class TornadoClimateEntity(ClimateEntity):
                 {"pwr": 1}
             )
         except Exception as ex:
-            _LOGGER.error(
+            _LOGGER.exception(
                 "Error turning on %s: %s",
                 self._device.get("endpointId", "Unknown"),
                 str(ex)
@@ -347,7 +350,7 @@ class TornadoClimateEntity(ClimateEntity):
                 {"pwr": 0}
             )
         except Exception as ex:
-            _LOGGER.error(
+            _LOGGER.exception(
                 "Error turning off %s: %s",
                 self._device.get("endpointId", "Unknown"),
                 str(ex)

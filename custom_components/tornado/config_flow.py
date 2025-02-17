@@ -2,17 +2,18 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import voluptuous as vol
-
 from homeassistant import config_entries
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
-from homeassistant.data_entry_flow import FlowResult
 from homeassistant.core import callback
 
-from .const import DOMAIN, CONF_REGION, REGIONS
 from .aux_cloud import AuxCloudAPI
+from .const import CONF_REGION, DOMAIN, REGIONS
+
+if TYPE_CHECKING:
+    from homeassistant.data_entry_flow import FlowResult
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -47,7 +48,7 @@ class TornadoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     data=user_input
                 )
             except Exception as ex:
-                _LOGGER.error("Failed to connect to Tornado AC: %s", str(ex))
+                _LOGGER.exception("Failed to connect to Tornado AC: %s", str(ex))
                 errors["base"] = "cannot_connect"
 
         return self.async_show_form(
@@ -99,7 +100,7 @@ class TornadoOptionsFlow(config_entries.OptionsFlow):
                     data=user_input
                 )
             except Exception as ex:
-                _LOGGER.error("Failed to connect to Tornado AC: %s", str(ex))
+                _LOGGER.exception("Failed to connect to Tornado AC: %s", str(ex))
                 errors["base"] = "cannot_connect"
 
         return self.async_show_form(
