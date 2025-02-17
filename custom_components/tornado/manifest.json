@@ -1,12 +1,12 @@
 {
-    "domain": "tornado-control",
+    "domain": "tornado",
     "name": "Tornado Air Conditioner",
-    "config_flow": true,
-    "documentation": "https://github.com/romfreiman/tornado-control",
-    "requirements": ["aiohttp"],
-    "dependencies": [],
     "codeowners": ["@yourusername"],
-    "version": "1.0.0",
+    "config_flow": true,
+    "dependencies": [],
+    "documentation": "https://github.com/romfreiman/tornado-control",
     "iot_class": "cloud_polling",
-    "icon": "tornado.png"
+    "issue_tracker": "https://github.com/romfreiman/tornado-aircon-custom-component/issues",
+    "requirements": ["aiohttp"],
+    "version": "1.0.0"
 }
