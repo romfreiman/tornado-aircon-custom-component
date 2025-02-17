@@ -8,7 +8,6 @@ import hashlib
 import json
 import logging
 import time
-from pathlib import Path
 from typing import Any
 
 import aiohttp
@@ -83,7 +82,6 @@ class AuxCloudAPI:
         email: str,
         password: str,
         region: str = "eu",
-        session_file: str | None = None,
     ) -> None:
         """
         Initialize the API client.
@@ -92,10 +90,8 @@ class AuxCloudAPI:
             email: User email address
             password: User password
             region: Region for API server ("eu" or "usa")
-            session_file: Optional path to session file
 
         """
-        self.session_file = session_file
         self.url = API_SERVER_URL_EU if region == "eu" else API_SERVER_URL_USA
         self.email = email
         self.password = password
@@ -177,15 +173,6 @@ class AuxCloudAPI:
         password = password if password is not None else self.password
         _LOGGER.info("Attempting to login with email: %s", email)
 
-        if self.session_file and Path(self.session_file).exists():
-            session_data = json.loads(
-                Path(self.session_file).read_text(encoding="utf-8")
-            )
-            self.userid = session_data["userid"]
-            self.loginsession = session_data["loginsession"]
-            _LOGGER.info("Loaded session from file: %s", self.session_file)
-            return True
-
         current_time = time.time()
         # Note: SHA1 is used here to match the original API implementation
         sha_password = hashlib.sha1(  # noqa: S324
@@ -222,13 +209,6 @@ class AuxCloudAPI:
             if "status" in json_data and json_data["status"] == 0:
                 self.loginsession = json_data["loginsession"]
                 self.userid = json_data["userid"]
-                if self.session_file:
-                    Path(self.session_file).write_text(
-                        json.dumps(
-                            {"userid": self.userid, "loginsession": self.loginsession}
-                        ),
-                        encoding="utf-8",
-                    )
                 _LOGGER.info("Login successful for email: %s", email)
                 return True
 
