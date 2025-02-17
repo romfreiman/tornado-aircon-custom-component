@@ -56,3 +56,4 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 ## Acknowledgements
 
 Special shoutout to [@maeek](https://github.com/maeek) for their great work on [ha-aux-cloud](https://github.com/maeek/ha-aux-cloud) as a baseline for this Home Assistant component.
+Also, thanks to [@thewh1teagle](https://github.com/thewh1teagle) for their excellent work on [tornado-control](https://github.com/thewh1teagle/tornado-control) which inspired this component.
