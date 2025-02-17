@@ -1,16 +1,18 @@
 """AuxCloud API client for Tornado AC."""
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import json
-import aiohttp
-import asyncio
-import time
 import logging
-from typing import Any, List, Dict
+import time
 from io import BytesIO
 from pathlib import Path
+from typing import Any, Dict, List
+
+import aiohttp
+
 from .util import encrypt_aes_cbc_zero_padding
 
 _LOGGER = logging.getLogger(__name__)
@@ -32,18 +34,32 @@ API_SERVER_URL_USA = "https://app-service-usa-fd7cc04c.smarthomecs.com"
 
 class AuxCloudAPI:
     """API Client for AuxCloud."""
-    
-    def __init__(self, email: str, password: str, region: str = 'eu', session_file: str = None) -> None:
-        """Initialize the API client."""
+
+    def __init__(self, email: str, password: str, region: str = "eu", session_file: str | None = None) -> None:
+        """Initialize the API client.
+
+        Args:
+            email: User email address
+            password: User password
+            region: Region for API server ("eu" or "usa")
+            session_file: Optional path to session file
+        """
         self.session_file = session_file
-        self.url = API_SERVER_URL_EU if region == 'eu' else API_SERVER_URL_USA
+        self.url = API_SERVER_URL_EU if region == "eu" else API_SERVER_URL_USA
         self.email = email
         self.password = password
-        self.data = {}  # Store family and device data
+        self.data: dict[str, Any] = {}  # Store family and device data
         _LOGGER.debug("Initialized AuxCloudAPI with email: %s, region: %s", email, region)
 
-    def _get_headers(self, **kwargs: str) -> dict:
-        """Get request headers."""
+    def _get_headers(self, **kwargs: str) -> dict[str, str]:
+        """Get request headers.
+
+        Args:
+            **kwargs: Additional header key-value pairs
+
+        Returns:
+            Dictionary of headers
+        """
         headers = {
             "Content-Type": "application/x-java-serialized-object",
             "licenseId": LICENSE_ID,
@@ -53,29 +69,50 @@ class AuxCloudAPI:
             "User-Agent": SPOOF_USER_AGENT,
             "system": SPOOF_SYSTEM,
             "appPlatform": SPOOF_APP_PLATFORM,
-            "loginsession": getattr(self, 'loginsession', ''),
-            "userid": getattr(self, 'userid', ''),
+            "loginsession": getattr(self, "loginsession", ""),
+            "userid": getattr(self, "userid", ""),
             **kwargs
         }
         _LOGGER.debug("Generated headers: %s", headers)
         return headers
 
-    def _get_directive_header(self, namespace: str, name: str, message_id_prefix: str, **kwargs: str) -> dict:
-        """Get directive header for device control."""
+    def _get_directive_header(self, namespace: str, name: str, message_id_prefix: str, **kwargs: str) -> dict[str, str]:
+        """Get directive header for device control.
+
+        Args:
+            namespace: Directive namespace
+            name: Directive name
+            message_id_prefix: Prefix for message ID
+            **kwargs: Additional header key-value pairs
+
+        Returns:
+            Dictionary containing directive header
+        """
         timestamp = int(time.time())
         header = {
             "namespace": namespace,
             "name": name,
             "interfaceVersion": "2",
             "senderId": "sdk",
-            "messageId": f'{message_id_prefix}-{timestamp}',
+            "messageId": f"{message_id_prefix}-{timestamp}",
             **kwargs
         }
         _LOGGER.debug("Generated directive header: %s", header)
         return header
 
-    async def login(self, email: str = None, password: str = None) -> bool:
-        """Login to AuxCloud."""
+    async def login(self, email: str | None = None, password: str | None = None) -> bool:
+        """Login to AuxCloud.
+
+        Args:
+            email: Optional email override
+            password: Optional password override
+
+        Returns:
+            bool: True if login successful
+
+        Raises:
+            Exception: If login fails
+        """
         email = email if email is not None else self.email
         password = password if password is not None else self.password
         _LOGGER.info("Attempting to login with email: %s", email)
@@ -127,8 +164,15 @@ class AuxCloudAPI:
             _LOGGER.error("Login error: %s", str(ex))
             raise
 
-    async def get_devices(self) -> List[Dict[str, Any]]:
-        """Get all devices across all families."""
+    async def get_devices(self) -> list[dict[str, Any]]:
+        """Get all devices across all families.
+
+        Returns:
+            List of device dictionaries
+
+        Raises:
+            Exception: If device fetching fails
+        """
         _LOGGER.debug("Fetching all devices")
         all_devices = []
         try:
@@ -138,7 +182,7 @@ class AuxCloudAPI:
             
             # Then get devices for each family
             for family in families:
-                family_id = family['familyid']
+                family_id = family["familyid"]
                 # Get regular devices
                 devices = await self.list_devices(family_id)
                 _LOGGER.debug("Fetched devices for family %s: %s", family_id, devices)
@@ -148,91 +192,135 @@ class AuxCloudAPI:
                 shared_devices = await self.list_devices(family_id, shared=True)
                 _LOGGER.debug("Fetched shared devices for family %s: %s", family_id, shared_devices)
                 all_devices.extend(shared_devices)
-                
         except Exception as ex:
             _LOGGER.error("Error getting devices: %s", str(ex))
             raise
 
         return all_devices
 
-    async def list_families(self) -> List[Dict[str, Any]]:
-        """Get list of all families."""
+    async def list_families(self) -> list[dict[str, Any]]:
+        """Get list of all families.
+
+        Returns:
+            List of family dictionaries
+
+        Raises:
+            Exception: If family list fetching fails
+        """
         _LOGGER.debug("Fetching list of families")
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                f'{self.url}/appsync/group/member/getfamilylist',
+                f"{self.url}/appsync/group/member/getfamilylist",
                 headers=self._get_headers(),
             ) as response:
                 data = await response.text()
                 json_data = json.loads(data)
 
-                if 'status' in json_data and json_data['status'] == 0:
+                if "status" in json_data and json_data["status"] == 0:
                     self.data = {}
-                    for family in json_data['data']['familyList']:
-                        self.data[family['familyid']] = {
-                            'id': family['familyid'],
-                            'name': family['name'],
-                            'rooms': [],
-                            'devices': []
+                    for family in json_data["data"]["familyList"]:
+                        self.data[family["familyid"]] = {
+                            "id": family["familyid"],
+                            "name": family["name"],
+                            "rooms": [],
+                            "devices": []
                         }
-                    _LOGGER.debug("Fetched family list: %s", json_data['data']['familyList'])
-                    return json_data['data']['familyList']
+                    _LOGGER.debug("Fetched family list: %s", json_data["data"]["familyList"])
+                    return json_data["data"]["familyList"]
                 raise Exception(f"Failed to get families list: {data}")
 
-    async def list_devices(self, family_id: str, shared: bool = False) -> List[Dict[str, Any]]:
-        """Get devices for a specific family."""
+    async def list_devices(self, family_id: str, shared: bool = False) -> list[dict[str, Any]]:
+        """Get devices for a specific family.
+
+        Args:
+            family_id: ID of the family
+            shared: Whether to get shared devices
+
+        Returns:
+            List of device dictionaries
+
+        Raises:
+            Exception: If device list fetching fails
+        """
         _LOGGER.debug("Fetching devices for family_id: %s, shared: %s", family_id, shared)
         async with aiohttp.ClientSession() as session:
-            device_endpoint = 'dev/query?action=select' if not shared else 'sharedev/querylist?querytype=shared'
+            device_endpoint = "dev/query?action=select" if not shared else "sharedev/querylist?querytype=shared"
             async with session.post(
-                f'{self.url}/appsync/group/{device_endpoint}',
+                f"{self.url}/appsync/group/{device_endpoint}",
                 data='{"pids":[]}' if not shared else '{"endpointId":""}',
                 headers=self._get_headers(familyid=family_id),
             ) as response:
                 data = await response.text()
                 json_data = json.loads(data)
 
-                if 'status' in json_data and json_data['status'] == 0:
-                    if 'endpoints' in json_data['data']:
-                        devices = json_data['data']['endpoints']
-                    elif 'shareFromOther' in json_data['data']:
-                        devices = [dev['devinfo'] for dev in json_data['data']['shareFromOther']]
+                if "status" in json_data and json_data["status"] == 0:
+                    if "endpoints" in json_data["data"]:
+                        devices = json_data["data"]["endpoints"]
+                    elif "shareFromOther" in json_data["data"]:
+                        devices = [dev["devinfo"] for dev in json_data["data"]["shareFromOther"]]
 
                     for dev in devices:
                         # Get device state
-                        dev_state = await self.query_device_state(dev['endpointId'], dev['devSession'])
-                        dev['state'] = dev_state['data'][0]['state']
+                        dev_state = await self.query_device_state(dev["endpointId"], dev["devSession"])
+                        dev["state"] = dev_state["data"][0]["state"]
                         
                         # Get device parameters
                         dev_params = await self.get_device_params(dev)
-                        dev['params'] = dev_params
+                        dev["params"] = dev_params
 
                         # Get device ambient mode
-                        ambient_mode = await self.get_device_params(dev, ['mode'])
-                        _LOGGER.debug("Ambient mode for device %s: %s", dev['endpointId'], ambient_mode)
-                        dev['params']['envtemp'] = ambient_mode['envtemp']
+                        ambient_mode = await self.get_device_params(dev, ["mode"])
+                        _LOGGER.debug("Ambient mode for device %s: %s", dev["endpointId"], ambient_mode)
+                        dev["params"]["envtemp"] = ambient_mode["envtemp"]
                         
-                        if not any(d['endpointId'] == dev['endpointId'] for d in self.data[family_id]['devices']):
-                            self.data[family_id]['devices'].append(dev)
+                        if not any(d["endpointId"] == dev["endpointId"] for d in self.data[family_id]["devices"]):
+                            self.data[family_id]["devices"].append(dev)
 
                     _LOGGER.debug("Fetched devices for family_id %s: %s", family_id, devices)
                     return devices
                 raise Exception(f"Failed to get devices: {data}")
 
-    async def get_device_params(self, device: dict, params: list[str] = []) -> Dict[str, Any]:
-        """Get device parameters."""
+    async def get_device_params(self, device: dict[str, Any], params: list[str] = []) -> dict[str, Any]:
+        """Get device parameters.
+
+        Args:
+            device: Device information dictionary
+            params: List of parameter names to get
+
+        Returns:
+            Dictionary of parameter values
+        """
         _LOGGER.debug("Fetching device parameters for device: %s, params = %s", device, params)
         return await self._act_device_params(device, "get", params)
 
-    async def set_device_params(self, device: dict, values: dict) -> Dict[str, Any]:
-        """Set device parameters."""
+    async def set_device_params(self, device: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
+        """Set device parameters.
+
+        Args:
+            device: Device information dictionary
+            values: Dictionary of parameter names and values to set
+
+        Returns:
+            Dictionary of updated parameter values
+        """
         _LOGGER.info("Setting device parameters for device: %s with values: %s", device, values)
         params = list(values.keys())
         vals = [[{"val": val, "idx": 1}] for val in values.values()]
         return await self._act_device_params(device, "set", params, vals)
 
-    async def query_device_state(self, device_id: str, dev_session: str) -> Dict[str, Any]:
-        """Query device state."""
+    async def query_device_state(self, device_id: str, dev_session: str) -> dict[str, Any]:
+        """Query device state.
+
+        Args:
+            device_id: Device identifier
+            dev_session: Device session token
+
+        Returns:
+            Dictionary containing device state
+
+        Raises:
+            Exception: If state query fails
+        """
         _LOGGER.debug("Querying device state for device_id: %s", device_id)
         async with aiohttp.ClientSession() as session:
             timestamp = int(time.time())
@@ -243,7 +331,7 @@ class AuxCloudAPI:
                         name="queryState",
                         messageType="controlgw.batch",
                         message_id_prefix=self.userid,
-                        timestamp=f'{timestamp}'
+                        timestamp=f"{timestamp}"
                     ),
                     "payload": {
                         "studata": [{
@@ -258,26 +346,36 @@ class AuxCloudAPI:
             _LOGGER.debug("Sending query state request with data: %s", data)
 
             async with session.post(
-                f'{self.url}/device/control/v2/querystate',
-                data=json.dumps(data, separators=(',', ':')),
+                f"{self.url}/device/control/v2/querystate",
+                data=json.dumps(data, separators=(",", ":")),
                 headers=self._get_headers(),
             ) as response:
                 data = await response.text()
                 _LOGGER.debug("Received response: %s", data)
                 json_data = json.loads(data)
 
-                if ('event' in json_data and 
-                    'payload' in json_data['event'] and 
-                    json_data['event']['payload']['status'] == 0):
-                    _LOGGER.debug("Queried device state for device_id %s: %s", device_id, json_data['event']['payload'])
-                    return json_data['event']['payload']
-                else:
-                    _LOGGER.error("Failed to query device state: %s", data)
-                    raise Exception(f"Failed to query device state: {data}")
-    
+                if ("event" in json_data and
+                    "payload" in json_data["event"] and
+                    json_data["event"]["payload"]["status"] == 0):
+                    _LOGGER.debug("Queried device state for device_id %s: %s", device_id, json_data["event"]["payload"])
+                    return json_data["event"]["payload"]
 
-    async def query_device_temperature(self, device_id: str, dev_session: str) -> Dict[str, Any]:
-        """Query device temperature."""
+                _LOGGER.error("Failed to query device state: %s", data)
+                raise Exception(f"Failed to query device state: {data}")
+
+    async def query_device_temperature(self, device_id: str, dev_session: str) -> dict[str, Any]:
+        """Query device temperature.
+
+        Args:
+            device_id: Device identifier
+            dev_session: Device session token
+
+        Returns:
+            Dictionary containing temperature data
+
+        Raises:
+            Exception: If temperature query fails
+        """
         _LOGGER.debug("Querying device temperature for device_id: %s", device_id)
         async with aiohttp.ClientSession() as session:
             timestamp = int(time.time())
@@ -287,7 +385,7 @@ class AuxCloudAPI:
                         namespace="DNA.TemperatureSensor",
                         name="ReportState",
                         message_id_prefix=self.userid,
-                        timestamp=f'{timestamp}'
+                        timestamp=f"{timestamp}"
                     ),
                     "endpoint": {
                         "endpointId": device_id,
@@ -304,29 +402,29 @@ class AuxCloudAPI:
             _LOGGER.debug("Sending query temperature request with data: %s", data)
 
             async with session.post(
-                f'{self.url}/device/control/v2/temperaturesensor',
-                data=json.dumps(data, separators=(',', ':')),
+                f"{self.url}/device/control/v2/temperaturesensor",
+                data=json.dumps(data, separators=(",", ":")),
                 headers=self._get_headers(),
             ) as response:
                 data = await response.text()
                 _LOGGER.debug("Received response: %s", data)
                 json_data = json.loads(data)
 
-                if ('event' in json_data and 
-                    'payload' in json_data['event'] and 
-                    json_data['event']['payload']['status'] == 0):
-                    _LOGGER.debug("Queried device temperature for device_id %s: %s", device_id, json_data['event']['payload'])
-                    return json_data['event']['payload']
-                else:
-                    _LOGGER.error("Failed to query device temperature: %s", data)
-                    raise Exception(f"Failed to query device temperature: {data}")
+                if ("event" in json_data and
+                    "payload" in json_data["event"] and
+                    json_data["event"]["payload"]["status"] == 0):
+                    _LOGGER.debug("Queried device temperature for device_id %s: %s", device_id, json_data["event"]["payload"])
+                    return json_data["event"]["payload"]
+
+                _LOGGER.error("Failed to query device temperature: %s", data)
+                raise Exception(f"Failed to query device temperature: {data}")
 
     async def _act_device_params(
         self,
         device: dict[str, Any],
         act: str,
-        params: list[str] = None,
-        vals: list[list[dict[str, Any]]] = None,
+        params: list[str] | None = None,
+        vals: list[list[dict[str, Any]]] | None = None,
     ) -> dict[str, Any]:
         """Act on device parameters by getting or setting them.
 
@@ -340,7 +438,7 @@ class AuxCloudAPI:
             Dictionary mapping parameter names to their values
 
         Raises:
-            Exception: If the API request fails or params/vals length mismatch
+            ValueError: If the API request fails or params/vals length mismatch
         """
         params = params or []
         vals = vals or []
@@ -424,7 +522,7 @@ class AuxCloudAPI:
         Returns:
             True if parameters indicate ambient mode, False otherwise
         """
-        return len(params) == 1 and params[0] == 'mode'
+        return len(params) == 1 and params[0] == "mode"
 
     async def refresh(self) -> None:
         """Refresh all family and device data.
@@ -436,10 +534,10 @@ class AuxCloudAPI:
         try:
             family_data = await self.list_families()
             tasks = [
-                self.list_devices(family['familyid'])
+                self.list_devices(family["familyid"])
                 for family in family_data
             ] + [
-                self.list_devices(family['familyid'], shared=True)
+                self.list_devices(family["familyid"], shared=True)
                 for family in family_data
             ]
             await asyncio.gather(*tasks)
