@@ -2,7 +2,8 @@
 """Constants for the Tornado AC integration."""
 DOMAIN = "tornado-control"  # Changed from aux_ac to match the folder name
 CONF_EMAIL = "email"
-CONF_PASSWORD = "password"
+# Configuration key for password field - not the actual password value
+CONF_PASSWORD = "password"  # noqa: S105
 CONF_REGION = "region"
 
 # Supported regions

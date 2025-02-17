@@ -23,7 +23,9 @@ class TornadoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     async def async_step_user(
-        self, user_input: dict[str, Any] | None = None, config_entry: config_entries.ConfigEntry | None = None
+        self,
+        user_input: dict[str, Any] | None = None,
+        config_entry: config_entries.ConfigEntry | None = None,
     ) -> FlowResult:
         """Handle the initial step."""
         errors = {}
@@ -47,8 +49,8 @@ class TornadoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     title=user_input[CONF_EMAIL],
                     data=user_input
                 )
-            except Exception as ex:
-                _LOGGER.exception("Failed to connect to Tornado AC: %s", str(ex))
+            except Exception:
+                _LOGGER.exception("Failed to connect to Tornado AC")
                 errors["base"] = "cannot_connect"
 
         return self.async_show_form(
@@ -99,8 +101,8 @@ class TornadoOptionsFlow(config_entries.OptionsFlow):
                     title="",
                     data=user_input
                 )
-            except Exception as ex:
-                _LOGGER.exception("Failed to connect to Tornado AC: %s", str(ex))
+            except Exception:
+                _LOGGER.exception("Failed to connect to Tornado AC")
                 errors["base"] = "cannot_connect"
 
         return self.async_show_form(
