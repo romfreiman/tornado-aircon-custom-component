@@ -1,5 +1,6 @@
 # __init__.py
 """The AUX AC integration."""
+
 from __future__ import annotations
 
 import logging
@@ -18,6 +19,7 @@ if TYPE_CHECKING:
 PLATFORMS: list[Platform] = [Platform.CLIMATE]
 _LOGGER = logging.getLogger(__name__)
 
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """
     Set up AUX AC from a config entry.
@@ -35,7 +37,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     client = AuxCloudAPI(
         email=entry.data[CONF_EMAIL],
         password=entry.data[CONF_PASSWORD],
-        region=entry.data[CONF_REGION]
+        region=entry.data[CONF_REGION],
     )
 
     try:
@@ -49,6 +51,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
+
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """

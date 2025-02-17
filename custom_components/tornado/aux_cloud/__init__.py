@@ -1,4 +1,5 @@
 """AuxCloud API client for Tornado AC."""
+
 from __future__ import annotations
 
 import asyncio
@@ -20,10 +21,29 @@ _LOGGER = logging.getLogger(__name__)
 TIMESTAMP_TOKEN_ENCRYPT_KEY = "kdixkdqp54545^#*"  # noqa: S105
 PASSWORD_ENCRYPT_KEY = "4969fj#k23#"  # noqa: S105
 BODY_ENCRYPT_KEY = "xgx3d*fe3478$ukx"
-AES_INITIAL_VECTOR = bytes([
-    (b + 256) % 256 for b in
-    [-22, -86, -86, 58, -69, 88, 98, -94, 25, 24, -75, 119, 29, 22, 21, -86]
-])
+AES_INITIAL_VECTOR = bytes(
+    [
+        (b + 256) % 256
+        for b in [
+            -22,
+            -86,
+            -86,
+            58,
+            -69,
+            88,
+            98,
+            -94,
+            25,
+            24,
+            -75,
+            119,
+            29,
+            22,
+            21,
+            -86,
+        ]
+    ]
+)
 LICENSE = (
     "PAFbJJ3WbvDxH5vvWezXN5BujETtH/iuTtIIW5CE/SeHN7oNKqnEajgljTcL0fBQQWM0XAAAAAAnBh"
     "JyhMi7zIQMsUcwR/PEwGA3uB5HLOnr+xRrci+FwHMkUtK7v4yo0ZHa+jPvb6djelPP893k7SagmffZ"
@@ -32,25 +52,28 @@ LICENSE = (
 LICENSE_ID = "3c015b249dd66ef0f11f9bef59ecd737"
 COMPANY_ID = "48eb1b36cf0202ab2ef07b880ecda60d"
 SPOOF_APP_VERSION = "2.2.10.456537160"
-SPOOF_USER_AGENT = (
-    "Dalvik/2.1.0 (Linux; U; Android 12; SM-G991B Build/SP1A.210812.016)"
-)
+SPOOF_USER_AGENT = "Dalvik/2.1.0 (Linux; U; Android 12; SM-G991B Build/SP1A.210812.016)"
 SPOOF_SYSTEM = "android"
 SPOOF_APP_PLATFORM = "android"
 API_SERVER_URL_EU = "https://app-service-deu-f0e9ebbb.smarthomecs.de"
 API_SERVER_URL_USA = "https://app-service-usa-fd7cc04c.smarthomecs.com"
 
+
 class AuxCloudError(Exception):
     """Base exception for AuxCloud API."""
+
 
 class AuxCloudAuthError(AuxCloudError):
     """Authentication error occurred."""
 
+
 class AuxCloudApiError(AuxCloudError):
     """API error occurred."""
 
+
 class AuxCloudConnectionError(AuxCloudError):
     """Connection error occurred."""
+
 
 class AuxCloudAPI:
     """API Client for AuxCloud."""
@@ -60,7 +83,7 @@ class AuxCloudAPI:
         email: str,
         password: str,
         region: str = "eu",
-        session_file: str | None = None
+        session_file: str | None = None,
     ) -> None:
         """
         Initialize the API client.
@@ -78,9 +101,7 @@ class AuxCloudAPI:
         self.password = password
         self.data: dict[str, Any] = {}  # Store family and device data
         _LOGGER.debug(
-            "Initialized AuxCloudAPI with email: %s, region: %s",
-            email,
-            region
+            "Initialized AuxCloudAPI with email: %s, region: %s", email, region
         )
 
     def _get_headers(self, **kwargs: str) -> dict[str, str]:
@@ -105,17 +126,13 @@ class AuxCloudAPI:
             "appPlatform": SPOOF_APP_PLATFORM,
             "loginsession": getattr(self, "loginsession", ""),
             "userid": getattr(self, "userid", ""),
-            **kwargs
+            **kwargs,
         }
         _LOGGER.debug("Generated headers: %s", headers)
         return headers
 
     def _get_directive_header(
-        self,
-        namespace: str,
-        name: str,
-        message_id_prefix: str,
-        **kwargs: str
+        self, namespace: str, name: str, message_id_prefix: str, **kwargs: str
     ) -> dict[str, str]:
         """
         Get directive header for device control.
@@ -137,15 +154,13 @@ class AuxCloudAPI:
             "interfaceVersion": "2",
             "senderId": "sdk",
             "messageId": f"{message_id_prefix}-{timestamp}",
-            **kwargs
+            **kwargs,
         }
         _LOGGER.debug("Generated directive header: %s", header)
         return header
 
     async def login(
-        self,
-        email: str | None = None,
-        password: str | None = None
+        self, email: str | None = None, password: str | None = None
     ) -> bool:
         """Login to AuxCloud."""
         try:
@@ -155,9 +170,7 @@ class AuxCloudAPI:
             raise
 
     async def _perform_login(
-        self,
-        email: str | None = None,
-        password: str | None = None
+        self, email: str | None = None, password: str | None = None
     ) -> bool:
         """Perform the actual login operation."""
         email = email if email is not None else self.email
@@ -182,7 +195,7 @@ class AuxCloudAPI:
             "email": email,
             "password": sha_password,
             "companyid": COMPANY_ID,
-            "lid": LICENSE_ID
+            "lid": LICENSE_ID,
         }
         json_payload = json.dumps(payload, separators=(",", ":"))
         # Note: MD5 is used here to match the original API implementation
@@ -193,18 +206,16 @@ class AuxCloudAPI:
             f"{current_time}{TIMESTAMP_TOKEN_ENCRYPT_KEY}".encode()
         ).digest()
 
-        async with aiohttp.ClientSession() as session, session.post(
-            f"{self.url}/account/login",
-            data=encrypt_aes_cbc_zero_padding(
-                AES_INITIAL_VECTOR,
-                md5_hash,
-                json_payload.encode()
-            ),
-            headers=self._get_headers(
-                timestamp=f"{current_time}",
-                token=token
-            ),
-        ) as resp:
+        async with (
+            aiohttp.ClientSession() as session,
+            session.post(
+                f"{self.url}/account/login",
+                data=encrypt_aes_cbc_zero_padding(
+                    AES_INITIAL_VECTOR, md5_hash, json_payload.encode()
+                ),
+                headers=self._get_headers(timestamp=f"{current_time}", token=token),
+            ) as resp,
+        ):
             data = await resp.text()
             json_data = json.loads(data)
 
@@ -213,11 +224,10 @@ class AuxCloudAPI:
                 self.userid = json_data["userid"]
                 if self.session_file:
                     Path(self.session_file).write_text(
-                        json.dumps({
-                            "userid": self.userid,
-                            "loginsession": self.loginsession
-                        }),
-                        encoding="utf-8"
+                        json.dumps(
+                            {"userid": self.userid, "loginsession": self.loginsession}
+                        ),
+                        encoding="utf-8",
                     )
                 _LOGGER.info("Login successful for email: %s", email)
                 return True
@@ -248,11 +258,7 @@ class AuxCloudAPI:
                 family_id = family["familyid"]
                 # Get regular devices
                 devices = await self.list_devices(family_id)
-                _LOGGER.debug(
-                    "Fetched devices for family %s: %s",
-                    family_id,
-                    devices
-                )
+                _LOGGER.debug("Fetched devices for family %s: %s", family_id, devices)
                 all_devices.extend(devices)
 
                 # Get shared devices
@@ -260,7 +266,7 @@ class AuxCloudAPI:
                 _LOGGER.debug(
                     "Fetched shared devices for family %s: %s",
                     family_id,
-                    shared_devices
+                    shared_devices,
                 )
                 all_devices.extend(shared_devices)
         except Exception:
@@ -281,10 +287,13 @@ class AuxCloudAPI:
 
         """
         _LOGGER.debug("Fetching list of families")
-        async with aiohttp.ClientSession() as session, session.post(
-            f"{self.url}/appsync/group/member/getfamilylist",
-            headers=self._get_headers(),
-        ) as response:
+        async with (
+            aiohttp.ClientSession() as session,
+            session.post(
+                f"{self.url}/appsync/group/member/getfamilylist",
+                headers=self._get_headers(),
+            ) as response,
+        ):
             data = await response.text()
             json_data = json.loads(data)
 
@@ -295,21 +304,17 @@ class AuxCloudAPI:
                         "id": family["familyid"],
                         "name": family["name"],
                         "rooms": [],
-                        "devices": []
+                        "devices": [],
                     }
                 _LOGGER.debug(
-                    "Fetched family list: %s",
-                    json_data["data"]["familyList"]
+                    "Fetched family list: %s", json_data["data"]["familyList"]
                 )
                 return json_data["data"]["familyList"]
             msg = f"Failed to get families list: {data}"
             raise AuxCloudApiError(msg)
 
     async def list_devices(
-        self,
-        family_id: str,
-        *,
-        shared: bool = False
+        self, family_id: str, *, shared: bool = False
     ) -> list[dict[str, Any]]:
         """
         Get devices for a specific family.
@@ -326,9 +331,7 @@ class AuxCloudAPI:
 
         """
         _LOGGER.debug(
-            "Fetching devices for family_id: %s, shared: %s",
-            family_id,
-            shared
+            "Fetching devices for family_id: %s, shared: %s", family_id, shared
         )
         async with aiohttp.ClientSession() as session:
             device_endpoint = (
@@ -356,8 +359,7 @@ class AuxCloudAPI:
                     for dev in devices:
                         # Get device state
                         dev_state = await self.query_device_state(
-                            dev["endpointId"],
-                            dev["devSession"]
+                            dev["endpointId"], dev["devSession"]
                         )
                         dev["state"] = dev_state["data"][0]["state"]
 
@@ -366,14 +368,11 @@ class AuxCloudAPI:
                         dev["params"] = dev_params
 
                         # Get device ambient mode
-                        ambient_mode = await self.get_device_params(
-                            dev,
-                            ["mode"]
-                        )
+                        ambient_mode = await self.get_device_params(dev, ["mode"])
                         _LOGGER.debug(
                             "Ambient mode for device %s: %s",
                             dev["endpointId"],
-                            ambient_mode
+                            ambient_mode,
                         )
                         dev["params"]["envtemp"] = ambient_mode["envtemp"]
 
@@ -384,18 +383,14 @@ class AuxCloudAPI:
                             self.data[family_id]["devices"].append(dev)
 
                     _LOGGER.debug(
-                        "Fetched devices for family_id %s: %s",
-                        family_id,
-                        devices
+                        "Fetched devices for family_id %s: %s", family_id, devices
                     )
                     return devices
                 msg = f"Failed to get devices: {data}"
                 raise AuxCloudApiError(msg)
 
     async def get_device_params(
-        self,
-        device: dict[str, Any],
-        params: list[str] | None = None
+        self, device: dict[str, Any], params: list[str] | None = None
     ) -> dict[str, Any]:
         """
         Get device parameters.
@@ -411,16 +406,12 @@ class AuxCloudAPI:
         if params is None:
             params = []
         _LOGGER.debug(
-            "Fetching device parameters for device: %s, params = %s",
-            device,
-            params
+            "Fetching device parameters for device: %s, params = %s", device, params
         )
         return await self._act_device_params(device, "get", params)
 
     async def set_device_params(
-        self,
-        device: dict[str, Any],
-        values: dict[str, Any]
+        self, device: dict[str, Any], values: dict[str, Any]
     ) -> dict[str, Any]:
         """
         Set device parameters.
@@ -434,18 +425,14 @@ class AuxCloudAPI:
 
         """
         _LOGGER.info(
-            "Setting device parameters for device: %s with values: %s",
-            device,
-            values
+            "Setting device parameters for device: %s with values: %s", device, values
         )
         params = list(values.keys())
         vals = [[{"val": val, "idx": 1}] for val in values.values()]
         return await self._act_device_params(device, "set", params, vals)
 
     async def query_device_state(
-        self,
-        device_id: str,
-        dev_session: str
+        self, device_id: str, dev_session: str
     ) -> dict[str, Any]:
         """
         Query device state.
@@ -471,22 +458,16 @@ class AuxCloudAPI:
                         name="queryState",
                         messageType="controlgw.batch",
                         message_id_prefix=self.userid,
-                        timestamp=f"{timestamp}"
+                        timestamp=f"{timestamp}",
                     ),
                     "payload": {
-                        "studata": [{
-                            "did": device_id,
-                            "devSession": dev_session
-                        }],
-                        "msgtype": "batch"
-                    }
+                        "studata": [{"did": device_id, "devSession": dev_session}],
+                        "msgtype": "batch",
+                    },
                 }
             }
 
-            _LOGGER.debug(
-                "Sending query state request with data: %s",
-                data
-            )
+            _LOGGER.debug("Sending query state request with data: %s", data)
 
             async with session.post(
                 f"{self.url}/device/control/v2/querystate",
@@ -497,13 +478,15 @@ class AuxCloudAPI:
                 _LOGGER.debug("Received response: %s", data)
                 json_data = json.loads(data)
 
-                if ("event" in json_data and
-                        "payload" in json_data["event"] and
-                        json_data["event"]["payload"]["status"] == 0):
+                if (
+                    "event" in json_data
+                    and "payload" in json_data["event"]
+                    and json_data["event"]["payload"]["status"] == 0
+                ):
                     _LOGGER.debug(
                         "Queried device state for device_id %s: %s",
                         device_id,
-                        json_data["event"]["payload"]
+                        json_data["event"]["payload"],
                     )
                     return json_data["event"]["payload"]
 
@@ -512,34 +495,34 @@ class AuxCloudAPI:
                 raise AuxCloudApiError(msg)
 
     async def query_device_temperature(
-        self,
-        device_id: str,
-        dev_session: str
+        self, device_id: str, dev_session: str
     ) -> dict[str, Any]:
         """Query device temperature."""
-        _LOGGER.debug(
-            "Querying device temperature for device_id: %s",
-            device_id
-        )
-        async with aiohttp.ClientSession() as session, session.post(
-            f"{self.url}/device/control/v2/temperaturesensor",
-            data=json.dumps(self._build_temperature_query_data(
-                device_id,
-                dev_session
-            ), separators=(",", ":")),
-            headers=self._get_headers(),
-        ) as resp:
+        _LOGGER.debug("Querying device temperature for device_id: %s", device_id)
+        async with (
+            aiohttp.ClientSession() as session,
+            session.post(
+                f"{self.url}/device/control/v2/temperaturesensor",
+                data=json.dumps(
+                    self._build_temperature_query_data(device_id, dev_session),
+                    separators=(",", ":"),
+                ),
+                headers=self._get_headers(),
+            ) as resp,
+        ):
             data = await resp.text()
             _LOGGER.debug("Received response: %s", data)
             json_data = json.loads(data)
 
-            if ("event" in json_data and
-                    "payload" in json_data["event"] and
-                    json_data["event"]["payload"]["status"] == 0):
+            if (
+                "event" in json_data
+                and "payload" in json_data["event"]
+                and json_data["event"]["payload"]["status"] == 0
+            ):
                 _LOGGER.debug(
                     "Queried device temperature for device_id %s: %s",
                     device_id,
-                    json_data["event"]["payload"]
+                    json_data["event"]["payload"],
                 )
                 return json_data["event"]["payload"]
 
@@ -547,9 +530,7 @@ class AuxCloudAPI:
             raise AuxCloudApiError(error_msg)
 
     def _build_temperature_query_data(
-        self,
-        device_id: str,
-        dev_session: str
+        self, device_id: str, dev_session: str
     ) -> dict[str, Any]:
         """Build the data payload for temperature query."""
         timestamp = int(time.time())
@@ -559,17 +540,14 @@ class AuxCloudAPI:
                     namespace="DNA.TemperatureSensor",
                     name="ReportState",
                     message_id_prefix=self.userid,
-                    timestamp=f"{timestamp}"
+                    timestamp=f"{timestamp}",
                 ),
                 "endpoint": {
                     "endpointId": device_id,
-                    "devicePairedInfo": {
-                        "did": device_id,
-                        "devSession": dev_session
-                    },
-                    "cookie": {}
+                    "devicePairedInfo": {"did": device_id, "devSession": dev_session},
+                    "cookie": {},
                 },
-                "payload": {}
+                "payload": {},
             }
         }
 
@@ -599,9 +577,7 @@ class AuxCloudAPI:
         params = params or []
         vals = vals or []
         _LOGGER.debug(
-            "Acting on device parameters for device: %s, action: %s",
-            device,
-            act
+            "Acting on device parameters for device: %s, action: %s", device, act
         )
 
         if act == "set" and len(params) != len(vals):
@@ -610,17 +586,22 @@ class AuxCloudAPI:
 
         async with aiohttp.ClientSession() as session:
             cookie = json.loads(base64.b64decode(device["cookie"].encode()))
-            mapped_cookie = base64.b64encode(json.dumps({
-                "device": {
-                    "id": cookie["terminalid"],
-                    "key": cookie["aeskey"],
-                    "devSession": device["devSession"],
-                    "aeskey": cookie["aeskey"],
-                    "did": device["endpointId"],
-                    "pid": device["productId"],
-                    "mac": device["mac"],
-                }
-            }, separators=(",", ":")).encode()).decode()
+            mapped_cookie = base64.b64encode(
+                json.dumps(
+                    {
+                        "device": {
+                            "id": cookie["terminalid"],
+                            "key": cookie["aeskey"],
+                            "devSession": device["devSession"],
+                            "aeskey": cookie["aeskey"],
+                            "did": device["endpointId"],
+                            "pid": device["productId"],
+                            "mac": device["mac"],
+                        }
+                    },
+                    separators=(",", ":"),
+                ).encode()
+            ).decode()
 
             data = {
                 "directive": {
@@ -662,13 +643,13 @@ class AuxCloudAPI:
                 response_text = await resp.text()
                 json_data = json.loads(response_text)
 
-                if all(key in json_data.get("event", {}).get("payload", {})
-                       for key in ("data",)):
+                if all(
+                    key in json_data.get("event", {}).get("payload", {})
+                    for key in ("data",)
+                ):
                     response = json.loads(json_data["event"]["payload"]["data"])
                     _LOGGER.debug(
-                        "Acted on device parameters for device %s: %s",
-                        device,
-                        response
+                        "Acted on device parameters for device %s: %s", device, response
                     )
                     return {
                         response["params"][i]: response["vals"][i][0]["val"]
@@ -703,8 +684,7 @@ class AuxCloudAPI:
         try:
             family_data = await self.list_families()
             tasks = [
-                self.list_devices(family["familyid"])
-                for family in family_data
+                self.list_devices(family["familyid"]) for family in family_data
             ] + [
                 self.list_devices(family["familyid"], shared=True)
                 for family in family_data

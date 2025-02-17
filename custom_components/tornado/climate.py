@@ -1,4 +1,5 @@
 """Platform for Tornado AC climate integration."""
+
 from __future__ import annotations
 
 import logging
@@ -72,6 +73,7 @@ PARAMETER_VALIDATION = {
     "comfwind": {"type": int, "range": (0, 1), "required": True},
 }
 
+
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
@@ -89,21 +91,23 @@ async def async_setup_entry(
 
         for device in devices:
             try:
-                entities.append(TornadoClimateEntity(
-                    hass,
-                    coordinator,
-                    device,
-                ))
+                entities.append(
+                    TornadoClimateEntity(
+                        hass,
+                        coordinator,
+                        device,
+                    )
+                )
             except Exception:
                 _LOGGER.exception(
-                    "Error setting up device %s",
-                    device.get("endpointId")
+                    "Error setting up device %s", device.get("endpointId")
                 )
 
         async_add_entities(entities)
 
     except Exception:
         _LOGGER.exception("Error setting up Tornado climate platform")
+
 
 class AuxCloudDataUpdateCoordinator(DataUpdateCoordinator):
     """Class to manage fetching AuxCloud data."""
@@ -129,6 +133,7 @@ class AuxCloudDataUpdateCoordinator(DataUpdateCoordinator):
             error_msg = f"Error fetching data: {err}"
             raise UpdateFailed(error_msg) from err
 
+
 class TornadoClimateEntity(ClimateEntity):
     """Representation of a Tornado AC Climate device."""
 
@@ -150,15 +155,15 @@ class TornadoClimateEntity(ClimateEntity):
             "identifiers": {(DOMAIN, device["endpointId"])},
             "name": f"Tornado AC {device.get('friendlyName')}",
             "manufacturer": "Tornado",
-            "model": "AUX Cloud"
+            "model": "AUX Cloud",
         }
 
         self._attr_supported_features = (
-            ClimateEntityFeature.TARGET_TEMPERATURE |
-            ClimateEntityFeature.FAN_MODE |
-            ClimateEntityFeature.SWING_MODE |
-            ClimateEntityFeature.TURN_ON |
-            ClimateEntityFeature.TURN_OFF
+            ClimateEntityFeature.TARGET_TEMPERATURE
+            | ClimateEntityFeature.FAN_MODE
+            | ClimateEntityFeature.SWING_MODE
+            | ClimateEntityFeature.TURN_ON
+            | ClimateEntityFeature.TURN_OFF
         )
 
         # Set available modes and temperature limits
@@ -218,8 +223,11 @@ class TornadoClimateEntity(ClimateEntity):
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from coordinator."""
-        _LOGGER.debug("Handling coordinator update for device %s with data: %s",
-                     self._device_id, self._device)
+        _LOGGER.debug(
+            "Handling coordinator update for device %s with data: %s",
+            self._device_id,
+            self._device,
+        )
 
         if not self._device:
             self._attr_available = False
@@ -242,7 +250,7 @@ class TornadoClimateEntity(ClimateEntity):
                     HVACMode.HEAT: HVACAction.HEATING,
                     HVACMode.DRY: HVACAction.DRYING,
                     HVACMode.FAN_ONLY: HVACAction.FAN,
-                    HVACMode.AUTO: HVACAction.IDLE
+                    HVACMode.AUTO: HVACAction.IDLE,
                 }.get(self._attr_hvac_mode, HVACAction.IDLE)
 
             # Update other attributes
@@ -258,7 +266,7 @@ class TornadoClimateEntity(ClimateEntity):
                 (0, 0): "off",
                 (1, 0): "vertical",
                 (0, 1): "horizontal",
-                (1, 1): "both"
+                (1, 1): "both",
             }.get((v_dir, h_dir), "off")
 
             self._attr_available = True
@@ -270,7 +278,7 @@ class TornadoClimateEntity(ClimateEntity):
                 self._attr_hvac_action,
                 self._attr_fan_mode,
                 self._attr_target_temperature,
-                self._attr_current_temperature
+                self._attr_current_temperature,
             )
 
         except Exception:
@@ -290,7 +298,7 @@ class TornadoClimateEntity(ClimateEntity):
         except Exception:
             _LOGGER.exception(
                 "Error setting parameters for %s",
-                self._device.get("endpointId", "Unknown")
+                self._device.get("endpointId", "Unknown"),
             )
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
@@ -299,14 +307,12 @@ class TornadoClimateEntity(ClimateEntity):
             _LOGGER.info(
                 "No temperature provided for %s %s",
                 self._device.get("endpointId"),
-                kwargs
+                kwargs,
             )
             return
 
         _LOGGER.info(
-            "Setting temperature to %s for %s",
-            temp,
-            self._device.get("endpointId")
+            "Setting temperature to %s for %s", temp, self._device.get("endpointId")
         )
         await self._set_device_params({"temp": int(temp * 10)})
 
@@ -315,10 +321,11 @@ class TornadoClimateEntity(ClimateEntity):
         _LOGGER.info(
             "Setting HVAC mode to %s for %s",
             hvac_mode,
-            self._device.get("endpointId", "Unknown")
+            self._device.get("endpointId", "Unknown"),
         )
         params = (
-            {"pwr": 0} if hvac_mode == HVACMode.OFF
+            {"pwr": 0}
+            if hvac_mode == HVACMode.OFF
             else {"pwr": 1, "ac_mode": HVAC_MODE_MAP_REVERSE.get(hvac_mode, "auto")}
         )
         await self._set_device_params(params)
@@ -328,22 +335,16 @@ class TornadoClimateEntity(ClimateEntity):
         _LOGGER.info(
             "Setting fan mode (ac_mark) to %s for %s",
             fan_mode,
-            self._device.get("endpointId", "Unknown")
+            self._device.get("endpointId", "Unknown"),
         )
         await self._set_device_params(
-            {"ac_mark": FAN_MODE_MAP_REVERSE.get(fan_mode, 1)})
+            {"ac_mark": FAN_MODE_MAP_REVERSE.get(fan_mode, 1)}
+        )
 
     async def async_set_swing_mode(self, swing_mode: str) -> None:
         """Set new target swing mode."""
-        device_id = self._device.get(
-            "endpointId",
-            "Unknown"
-        )
-        _LOGGER.info(
-            "Setting swing mode to %s for %s",
-            swing_mode,
-            device_id
-        )
+        device_id = self._device.get("endpointId", "Unknown")
+        _LOGGER.info("Setting swing mode to %s for %s", swing_mode, device_id)
         params = {
             "ac_vdir": 1 if swing_mode in ["vertical", "both"] else 0,
             "ac_hdir": 1 if swing_mode in ["horizontal", "both"] else 0,
@@ -354,26 +355,18 @@ class TornadoClimateEntity(ClimateEntity):
         """Turn the device on."""
         _LOGGER.info("Turning on %s", self._device.get("endpointId", "Unknown"))
         try:
-            await self._client.set_device_params(
-                self._device,
-                {"pwr": 1}
-            )
+            await self._client.set_device_params(self._device, {"pwr": 1})
         except Exception:
             _LOGGER.exception(
-                "Error turning on %s",
-                self._device.get("endpointId", "Unknown")
+                "Error turning on %s", self._device.get("endpointId", "Unknown")
             )
 
     async def async_turn_off(self) -> None:
         """Turn the device off."""
         _LOGGER.info("Turning off %s", self._device.get("endpointId", "Unknown"))
         try:
-            await self._client.set_device_params(
-                self._device,
-                {"pwr": 0}
-            )
+            await self._client.set_device_params(self._device, {"pwr": 0})
         except Exception:
             _LOGGER.exception(
-                "Error turning off %s",
-                self._device.get("endpointId", "Unknown")
+                "Error turning off %s", self._device.get("endpointId", "Unknown")
             )

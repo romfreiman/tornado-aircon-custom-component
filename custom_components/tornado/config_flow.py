@@ -1,4 +1,5 @@
 """Config flow for Tornado AC integration."""
+
 from __future__ import annotations
 
 import logging
@@ -16,6 +17,7 @@ if TYPE_CHECKING:
     from homeassistant.data_entry_flow import FlowResult
 
 _LOGGER = logging.getLogger(__name__)
+
 
 class TornadoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Tornado AC."""
@@ -38,7 +40,7 @@ class TornadoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 client = AuxCloudAPI(
                     email=user_input[CONF_EMAIL],
                     password=user_input[CONF_PASSWORD],
-                    region=user_input[CONF_REGION]
+                    region=user_input[CONF_REGION],
                 )
                 await client.login()
 
@@ -46,8 +48,7 @@ class TornadoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._abort_if_unique_id_configured()
 
                 return self.async_create_entry(
-                    title=user_input[CONF_EMAIL],
-                    data=user_input
+                    title=user_input[CONF_EMAIL], data=user_input
                 )
             except Exception:
                 _LOGGER.exception("Failed to connect to Tornado AC")
@@ -93,14 +94,11 @@ class TornadoOptionsFlow(config_entries.OptionsFlow):
                 client = AuxCloudAPI(
                     email=self.config_entry.data[CONF_EMAIL],
                     password=self.config_entry.data[CONF_PASSWORD],
-                    region=user_input[CONF_REGION]
+                    region=user_input[CONF_REGION],
                 )
                 await client.login()
 
-                return self.async_create_entry(
-                    title="",
-                    data=user_input
-                )
+                return self.async_create_entry(title="", data=user_input)
             except Exception:
                 _LOGGER.exception("Failed to connect to Tornado AC")
                 errors["base"] = "cannot_connect"
@@ -111,7 +109,7 @@ class TornadoOptionsFlow(config_entries.OptionsFlow):
                 {
                     vol.Required(
                         CONF_REGION,
-                        default=self.config_entry.data.get(CONF_REGION, "eu")
+                        default=self.config_entry.data.get(CONF_REGION, "eu"),
                     ): vol.In(REGIONS),
                 }
             ),
