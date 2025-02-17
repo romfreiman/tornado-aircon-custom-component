@@ -10,15 +10,20 @@ This custom component integrates Tornado Aircon devices with Home Assistant, all
 2. Copy the `custom_components/tornado_aircon` directory into your Home Assistant `config/custom_components` directory.
 3. Restart Home Assistant.
 
+I'll help improve the wording to make it clearer and more professional. Here's a suggested revision:
+
 ## Configuration
 
-Add the following entry to your `configuration.yaml` file:
+To set up the Tornado Air Conditioner integration in Home Assistant:
 
-```yaml
-tornado_aircon:
-  host: YOUR_TORNADO_AIRCON_IP
-  api_key: YOUR_API_KEY
-```
+1. Navigate to **Settings** → **Devices & Services**
+2. Click **Add Integration**
+3. Search for "Tornado Air Conditioner"
+4. In the configuration screen, enter:
+   - Your Tornado app email address
+   - Your Tornado app password
+   - Region: Select USA (Note: Verified working with Israel-based deployments)
+5. Click **Submit** to complete the setup
 
 ## Features
 
