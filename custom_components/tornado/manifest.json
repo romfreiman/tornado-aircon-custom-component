@@ -1,10 +1,10 @@
 {
     "domain": "tornado",
     "name": "Tornado Air Conditioner",
-    "codeowners": ["@yourusername"],
+    "codeowners": ["@romfreiman"],
     "config_flow": true,
     "dependencies": [],
-    "documentation": "https://github.com/romfreiman/tornado-control",
+    "documentation": "https://github.com/romfreiman/tornado-aircon-custom-component",
     "iot_class": "cloud_polling",
     "issue_tracker": "https://github.com/romfreiman/tornado-aircon-custom-component/issues",
     "requirements": ["aiohttp"],

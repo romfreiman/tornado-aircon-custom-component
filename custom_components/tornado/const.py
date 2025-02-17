@@ -1,7 +1,7 @@
-# custom_components/tornado-control/const.py
+# custom_components/tornado/const.py
 """Constants for the Tornado AC integration."""
 
-DOMAIN = "tornado-control"  # Changed from aux_ac to match the folder name
+DOMAIN = "tornado"
 CONF_EMAIL = "email"
 # Configuration key for password field - not the actual password value
 CONF_PASSWORD = "password"  # noqa: S105
