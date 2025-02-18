@@ -1,6 +1,8 @@
 """Tests for AuxCloud API client."""
 
 import json
+from types import TracebackType
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -13,7 +15,7 @@ from custom_components.tornado.aux_cloud import (
 
 
 @pytest.fixture
-def mock_response():
+def mock_response() -> MagicMock:
     """Mock aiohttp response."""
     response = MagicMock()
     response.__aenter__ = AsyncMock(return_value=response)
@@ -23,7 +25,7 @@ def mock_response():
 
 
 @pytest.fixture
-async def api():
+async def api() -> AuxCloudAPI:
     """Create API instance with mocked login."""
     api = AuxCloudAPI("test@example.com", "password", "eu")
     # Set required attributes that would normally be set during login
@@ -33,7 +35,7 @@ async def api():
 
 
 @pytest.mark.asyncio
-async def test_login_success(mock_response) -> None:
+async def test_login_success(mock_response: MagicMock) -> None:
     """Test successful login."""
     api = AuxCloudAPI("test@example.com", "password", "eu")
     mock_response.text.return_value = json.dumps(
@@ -54,37 +56,51 @@ async def test_login_error_handling() -> None:
     api = AuxCloudAPI("test@example.com", "wrongpassword", "eu")
 
     class FakeResponse:
-        async def __aenter__(self):
+        async def __aenter__(self) -> "FakeResponse":
             return self
 
-        async def __aexit__(self, exc_type, exc, tb):
+        async def __aexit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc: BaseException | None,
+            tb: TracebackType | None,
+        ) -> None:
             pass
 
-        async def text(self):
+        async def text(self) -> str:
             # Return a JSON string simulating a failed login.
             return json.dumps({"status": 1, "msg": "Invalid credentials"})
 
     class FakeClientSession:
-        async def __aenter__(self):
+        async def __aenter__(self) -> "FakeClientSession":
             return self
 
-        async def __aexit__(self, exc_type, exc, tb):
+        async def __aexit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc: BaseException | None,
+            tb: TracebackType | None,
+        ) -> None:
             pass
 
-        def post(self, url, **kwargs):
+        def post(self, url: str, **kwargs: Any) -> FakeResponse:
+            # Ignore url and kwargs as they're not used in the test implementation
+            _ = url, kwargs
             return FakeResponse()
 
     # Patch aiohttp.ClientSession to use FakeClientSession.
-    with patch("aiohttp.ClientSession", FakeClientSession):
+    with (
+        patch("aiohttp.ClientSession", FakeClientSession),
+        pytest.raises(AuxCloudAuthError, match="Login failed: Invalid credentials"),
+    ):
         # When login is called, the fake session/response chain will yield a failure.
-        with pytest.raises(
-            AuxCloudAuthError, match="Login failed: Invalid credentials"
-        ):
-            await api.login()
+        await api.login()
 
 
 @pytest.mark.asyncio
-async def test_list_families_success(api, mock_response) -> None:
+async def test_list_families_success(
+    api: AuxCloudAPI, mock_response: MagicMock
+) -> None:
     """Test successful family list retrieval."""
     mock_response.text.return_value = json.dumps(
         {
@@ -107,7 +123,9 @@ async def test_list_families_success(api, mock_response) -> None:
                         "createUser": "abc123def456ghi789jkl012mno345p",
                         "grouptype": "",
                         "master": "abc123def456ghi789jkl012mno345p",
-                        "extend": '{"weather":{"city":"10","country":"USA","province":"1"}}',
+                        "extend": (
+                            '{"weather":{"city":"10","country":"USA","province":"1"}}'
+                        ),
                         "zoneInfo": "",
                         "spaceId": "",
                         "companyId": "",
@@ -129,7 +147,9 @@ async def test_list_families_success(api, mock_response) -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_families_failure(api, mock_response) -> None:
+async def test_list_families_failure(
+    api: AuxCloudAPI, mock_response: MagicMock
+) -> None:
     """Test failed family list retrieval."""
     # Set up response mock
     mock_response.text = AsyncMock(
@@ -144,13 +164,15 @@ async def test_list_families_failure(api, mock_response) -> None:
     session_mock.__aenter__.return_value = session_mock
     session_mock.__aexit__.return_value = None
 
-    with patch("aiohttp.ClientSession", return_value=session_mock):
-        with pytest.raises(AuxCloudApiError, match="Failed to get families list:"):
-            await api.list_families()
+    with (
+        patch("aiohttp.ClientSession", return_value=session_mock),
+        pytest.raises(AuxCloudApiError, match="Failed to get families list:"),
+    ):
+        await api.list_families()
 
 
 @pytest.mark.asyncio
-async def test_get_devices(api) -> None:
+async def test_get_devices(api: AuxCloudAPI) -> None:
     """Test getting all devices."""
     families = [{"familyid": "abc123def456ghi789jkl012mno345p"}]
     devices = [
@@ -160,10 +182,16 @@ async def test_get_devices(api) -> None:
             "mac": "aa:bb:cc:dd:ee:ff",
             "gatewayId": "",
             "productId": "000000000000000000000000c0620000",
-            "icon": "/staticfilesys/openlimit/queryfile?mtag=appmanage&mkey=1234567890abcdef",
+            "icon": (
+                "/staticfilesys/openlimit/queryfile"
+                "?mtag=appmanage&mkey=1234567890abcdef"
+            ),
             "roomId": "2000000000000000000",
             "order": 1,
-            "cookie": "eyJkZXZpY2UiOiB7InRlcm1pbmFsaWQiOiAidGVybTEiLCAiYWVza2V5IjogImtleTEifX0=",
+            "cookie": (
+                "eyJkZXZpY2UiOiB7InRlcm1pbmFsaWQiOiAidGVybTEiLCAiYWVza2V5Ijog"
+                "ImtleTEifX0="
+            ),
             "vGroup": "",
             "irData": "",
             "extend": "",
@@ -218,6 +246,7 @@ async def test_get_devices(api) -> None:
     device_params = {"temp": 280, "ac_mode": 1, "ac_mark": 2, "pwr": 0}
     ambient_mode = {"envtemp": 220}  # 22.0 degrees
 
+    temp_constant = 280  # Define constant for temperature
     with (
         patch.object(api, "list_families", AsyncMock(return_value=families)),
         patch.object(api, "list_devices", AsyncMock(side_effect=[devices, []])),
@@ -236,11 +265,14 @@ async def test_get_devices(api) -> None:
 
         assert len(result) == 1
         assert result[0]["endpointId"] == "00000000000000000000000000000001"
-        assert result[0]["params"]["temp"] == 280
+        assert result[0]["params"]["temp"] == temp_constant
+        assert result[0]["icon"] == (
+            "/staticfilesys/openlimit/queryfile?mtag=appmanage&mkey=1234567890abcdef"
+        )
 
 
 @pytest.mark.asyncio
-async def test_query_device_state(api, mock_response) -> None:
+async def test_query_device_state(api: AuxCloudAPI, mock_response: MagicMock) -> None:
     """Test querying device state."""
     mock_response.text.return_value = json.dumps(
         {"event": {"payload": {"status": 0, "data": [{"state": "on"}]}}}
@@ -254,7 +286,7 @@ async def test_query_device_state(api, mock_response) -> None:
 
 
 @pytest.mark.asyncio
-async def test_set_device_params(api) -> None:
+async def test_set_device_params(api: AuxCloudAPI) -> None:
     """Test setting device parameters."""
     device = {
         "endpointId": "dev1",
@@ -262,7 +294,9 @@ async def test_set_device_params(api) -> None:
         "mac": "00:11:22:33:44:55",
         "devicetypeFlag": "flag1",
         "devSession": "sess1",
-        "cookie": "eyJkZXZpY2UiOiB7InRlcm1pbmFsaWQiOiAidGVybTEiLCAiYWVza2V5IjogImtleTEifX0=",
+        "cookie": (
+            "eyJkZXZpY2UiOiB7InRlcm1pbmFsaWQiOiAidGVybTEiLCAiYWVza2V5IjogImtleTEifX0="
+        ),
     }
 
     with patch.object(api, "_act_device_params", AsyncMock(return_value={"temp": 25})):
@@ -281,7 +315,7 @@ async def test_get_headers() -> None:
 
 
 @pytest.mark.asyncio
-async def test_act_device_params_get(api) -> None:
+async def test_act_device_params_get(api: AuxCloudAPI) -> None:
     """Test getting device parameters."""
     device = {
         "endpointId": "dev1",
@@ -289,7 +323,9 @@ async def test_act_device_params_get(api) -> None:
         "mac": "00:11:22:33:44:55",
         "devicetypeFlag": "flag1",
         "devSession": "sess1",
-        "cookie": "eyJkZXZpY2UiOiB7InRlcm1pbmFsaWQiOiAidGVybTEiLCAiYWVza2V5IjogImtleTEifX0=",
+        "cookie": (
+            "eyJkZXZpY2UiOiB7InRlcm1pbmFsaWQiOiAidGVybTEiLCAiYWVza2V5IjogImtleTEifX0="
+        ),
     }
 
     with patch.object(api, "_act_device_params", AsyncMock(return_value={"temp": 25})):
@@ -298,7 +334,7 @@ async def test_act_device_params_get(api) -> None:
 
 
 @pytest.mark.asyncio
-async def test_act_device_params_set(api) -> None:
+async def test_act_device_params_set(api: AuxCloudAPI) -> None:
     """Test setting device parameters."""
     device = {
         "endpointId": "dev1",
@@ -306,7 +342,9 @@ async def test_act_device_params_set(api) -> None:
         "mac": "00:11:22:33:44:55",
         "devicetypeFlag": "flag1",
         "devSession": "sess1",
-        "cookie": "eyJkZXZpY2UiOiB7InRlcm1pbmFsaWQiOiAidGVybTEiLCAiYWVza2V5IjogImtleTEifX0=",
+        "cookie": (
+            "eyJkZXZpY2UiOiB7InRlcm1pbmFsaWQiOiAidGVybTEiLCAiYWVza2V5IjogImtleTEifX0="
+        ),
     }
 
     with patch.object(api, "_act_device_params", AsyncMock(return_value={"temp": 25})):
@@ -315,7 +353,7 @@ async def test_act_device_params_set(api) -> None:
 
 
 @pytest.mark.asyncio
-async def test_is_ambient_mode(api) -> None:
+async def test_is_ambient_mode(api: AuxCloudAPI) -> None:
     """Test ambient mode detection."""
     assert api._is_ambient_mode(["mode"]) is True
     assert api._is_ambient_mode(["temp"]) is False
@@ -348,30 +386,44 @@ async def test_query_device_temperature_success() -> None:
     api.userid = "test_user"
     fake_payload = {"event": {"payload": {"status": 0, "temperature": 23.5}}}
 
+    query_temp_constant = 23.5  # Define constant for query temperature
+
     class FakeResponse:
-        async def __aenter__(self):
+        async def __aenter__(self) -> "FakeResponse":
             return self
 
-        async def __aexit__(self, exc_type, exc, tb):
+        async def __aexit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc: BaseException | None,
+            tb: TracebackType | None,
+        ) -> None:
             pass
 
-        async def text(self):
+        async def text(self) -> str:
             return json.dumps(fake_payload)
 
     class FakeSession:
-        async def __aenter__(self):
+        async def __aenter__(self) -> "FakeSession":
             return self
 
-        async def __aexit__(self, exc_type, exc, tb):
+        async def __aexit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc: BaseException | None,
+            tb: TracebackType | None,
+        ) -> None:
             pass
 
-        def post(self, url, **kwargs):
+        def post(self, url: str, **kwargs: Any) -> FakeResponse:
+            # Ignore url and kwargs as they're not used in the test implementation
+            _ = url, kwargs
             return FakeResponse()
 
     with patch("aiohttp.ClientSession", return_value=FakeSession()):
         result = await api.query_device_temperature("dev1", "sess1")
         assert "temperature" in result
-        assert result["temperature"] == 23.5
+        assert result["temperature"] == query_temp_constant
 
 
 @pytest.mark.asyncio
@@ -382,30 +434,43 @@ async def test_query_device_temperature_failure() -> None:
     api.userid = "test_user"
 
     class FakeResponse:
-        async def __aenter__(self):
+        async def __aenter__(self) -> "FakeResponse":
             return self
 
-        async def __aexit__(self, exc_type, exc, tb):
+        async def __aexit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc: BaseException | None,
+            tb: TracebackType | None,
+        ) -> None:
             pass
 
-        async def text(self):
+        async def text(self) -> str:
             # Simulate a failure response
             return json.dumps(
                 {"event": {"payload": {"status": 1, "msg": "Temperature query failed"}}}
             )
 
     class FakeSession:
-        async def __aenter__(self):
+        async def __aenter__(self) -> "FakeSession":
             return self
 
-        async def __aexit__(self, exc_type, exc, tb):
+        async def __aexit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc: BaseException | None,
+            tb: TracebackType | None,
+        ) -> None:
             pass
 
-        def post(self, url, **kwargs):
+        def post(self, url: str, **kwargs: Any) -> FakeResponse:
+            # Ignore url and kwargs as they're not used in the test implementation
+            _ = url, kwargs
             return FakeResponse()
 
-    with patch("aiohttp.ClientSession", return_value=FakeSession()), pytest.raises(
-        AuxCloudApiError, match="Failed to query device temperature"
+    with (
+        patch("aiohttp.ClientSession", return_value=FakeSession()),
+        pytest.raises(AuxCloudApiError, match="Failed to query device temperature"),
     ):
         await api.query_device_temperature("dev1", "sess1")
 
@@ -433,8 +498,8 @@ async def test_build_temperature_query_data() -> None:
 
 
 @pytest.mark.asyncio
-async def test_act_device_params_mismatch(api) -> None:
-    """Test _act_device_params raising ValueError when params and vals length mismatch."""
+async def test_act_device_params_mismatch(api: AuxCloudAPI) -> None:
+    """Test act_device_params raising ValueError when params and vals len mismatch."""
     device = {
         "endpointId": "dev1",
         "productId": "prod1",
@@ -442,7 +507,9 @@ async def test_act_device_params_mismatch(api) -> None:
         "devicetypeFlag": "flag1",
         "devSession": "sess1",
         # Using a valid cookie string as expected by the implementation.
-        "cookie": "eyJkZXZpY2UiOiB7InRlcm1pbmFsaWQiOiAidGVybTEiLCAiYWVza2V5IjogImtleTEifX0=",
+        "cookie": (
+            "eyJkZXZpY2UiOiB7InRlcm1pbmFsaWQiOiAidGVybTEiLCAiYWVza2V5IjogImtleTEifX0="
+        ),
     }
     with pytest.raises(ValueError, match="Params and Vals must have the same length"):
         # Directly call _act_device_params with mismatching params/vals.
@@ -450,21 +517,26 @@ async def test_act_device_params_mismatch(api) -> None:
 
 
 @pytest.mark.asyncio
-async def test_refresh_success(api) -> None:
+async def test_refresh_success(api: AuxCloudAPI) -> None:
     """Test refresh function when family and device fetching succeed."""
     test_families = [{"familyid": "fam1"}]
     # Patch list_families and list_devices to simulate successful fetches.
-    with patch.object(api, "list_families", AsyncMock(return_value=test_families)):
-        with patch.object(api, "list_devices", AsyncMock(return_value=[])):
-            await api.refresh()  # Should complete without raising an exception.
+    with (
+        patch.object(api, "list_families", AsyncMock(return_value=test_families)),
+        patch.object(api, "list_devices", AsyncMock(return_value=[])),
+    ):
+        await api.refresh()  # Should complete without raising an exception.
 
 
 @pytest.mark.asyncio
-async def test_refresh_failure(api) -> None:
+async def test_refresh_failure(api: AuxCloudAPI) -> None:
     """Test refresh function when list_families fails."""
-    with patch.object(
-        api,
-        "list_families",
-        AsyncMock(side_effect=Exception("Failed to fetch families")),
-    ), pytest.raises(Exception, match="Failed to fetch families"):
+    with (
+        patch.object(
+            api,
+            "list_families",
+            AsyncMock(side_effect=Exception("Failed to fetch families")),
+        ),
+        pytest.raises(Exception, match="Failed to fetch families"),
+    ):
         await api.refresh()

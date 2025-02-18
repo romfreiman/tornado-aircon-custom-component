@@ -1,3 +1,5 @@
+"""Test module for the Tornado integration config flow."""
+
 import pathlib
 from unittest.mock import AsyncMock, patch
 
@@ -15,18 +17,31 @@ from custom_components.tornado.const import (
 )
 
 
-# A minimal mock config entry for testing options flow
 class MockConfigEntry:
     """Mock config entry for testing."""
 
-    def __init__(self, data) -> None:
+    def __init__(self, data: dict) -> None:
+        """
+        Initialize mock config entry.
+
+        Args:
+            data: Configuration data dictionary
+
+        """
         self.entry_id = "test"
         self.data = data
         self.options = {}
         self.title = data.get(CONF_EMAIL, "unknown")
 
     @property
-    def config_entry_id(self):
+    def config_entry_id(self) -> str:
+        """
+        Get the config entry ID.
+
+        Returns:
+            str: The entry ID
+
+        """
         return self.entry_id
 
 
@@ -43,7 +58,14 @@ async def hass(tmp_path: pathlib.Path) -> HomeAssistant:
 
 # Fixture for valid user input for the config flow
 @pytest.fixture
-def valid_user_input():
+def valid_user_input() -> dict:
+    """
+    Provide valid user input for testing.
+
+    Returns:
+        dict: Valid configuration data
+
+    """
     return {
         CONF_EMAIL: "test@example.com",
         CONF_PASSWORD: "secret",
@@ -53,7 +75,9 @@ def valid_user_input():
 
 # Test the async_step_user when login is successful
 @pytest.mark.asyncio
-async def test_async_step_user_success(hass, valid_user_input) -> None:
+async def test_async_step_user_success(
+    hass: HomeAssistant, valid_user_input: dict
+) -> None:
     """Test successful user flow."""
     flow = TornadoConfigFlow()
     flow.hass = hass
@@ -85,7 +109,10 @@ async def test_async_step_user_success(hass, valid_user_input) -> None:
 
 # Test the async_step_user when login fails
 @pytest.mark.asyncio
-async def test_async_step_user_cannot_connect(hass, valid_user_input) -> None:
+async def test_async_step_user_cannot_connect(
+    hass: HomeAssistant, valid_user_input: dict
+) -> None:
+    """Test user flow when connection fails."""
     flow = TornadoConfigFlow()
     flow.hass = hass
 
@@ -103,7 +130,9 @@ async def test_async_step_user_cannot_connect(hass, valid_user_input) -> None:
 
 # Test the options flow when login is successful
 @pytest.mark.asyncio
-async def test_options_flow_success(hass, valid_user_input) -> None:
+async def test_options_flow_success(
+    hass: HomeAssistant, valid_user_input: dict
+) -> None:
     """Test successful options flow."""
     config_entry = MockConfigEntry(valid_user_input)
     options_flow = TornadoOptionsFlow(config_entry)
@@ -125,7 +154,9 @@ async def test_options_flow_success(hass, valid_user_input) -> None:
 
 # Test the options flow when login fails
 @pytest.mark.asyncio
-async def test_options_flow_cannot_connect(hass, valid_user_input) -> None:
+async def test_options_flow_cannot_connect(
+    hass: HomeAssistant, valid_user_input: dict
+) -> None:
     """Test failed options flow."""
     config_entry = MockConfigEntry(valid_user_input)
     options_flow = TornadoOptionsFlow(config_entry)
@@ -146,7 +177,8 @@ async def test_options_flow_cannot_connect(hass, valid_user_input) -> None:
 
 
 # Test that the static method returns an instance of the options flow.
-def test_async_get_options_flow(valid_user_input) -> None:
+def test_async_get_options_flow(valid_user_input: dict) -> None:
+    """Test that the options flow is created correctly."""
     config_entry = MockConfigEntry(valid_user_input)
     options_flow = TornadoConfigFlow.async_get_options_flow(config_entry)
     from custom_components.tornado.config_flow import TornadoOptionsFlow
