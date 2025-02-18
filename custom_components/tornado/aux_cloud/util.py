@@ -1,6 +1,6 @@
 """Utility functions for AUX cloud services."""
 
-from Crypto.Cipher import AES
+from Cryptodome.Cipher import AES
 
 
 def encrypt_aes_cbc_zero_padding(iv: bytes, key: bytes, data: bytes) -> bytes | None:
