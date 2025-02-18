@@ -212,7 +212,7 @@ class AuxCloudAPI:
                 _LOGGER.info("Login successful for email: %s", email)
                 return True
 
-            error_msg = f"Login failed: {data}"
+            error_msg = f"Login failed: {json_data.get('msg', data)}"
             raise AuxCloudAuthError(error_msg)
 
     async def get_devices(self) -> list[dict[str, Any]]:
