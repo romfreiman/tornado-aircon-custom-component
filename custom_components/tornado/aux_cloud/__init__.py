@@ -100,6 +100,9 @@ class AuxCloudAPI:
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get aiohttp client session."""
         if self.session is None:
+            if getattr(self, "_cleaned_up", False):
+                msg = "Cannot create new session after cleanup"
+                raise RuntimeError(msg)
             self.session = aiohttp.ClientSession()
             self._session_owner = True
         return self.session
@@ -108,6 +111,7 @@ class AuxCloudAPI:
         """Cleanup resources."""
         if self.session and self._session_owner and not self.session.closed:
             await self.session.close()
+        self._cleaned_up = True
 
     def _get_headers(self, **kwargs: str) -> dict[str, str]:
         """
@@ -402,31 +406,6 @@ class AuxCloudAPI:
                         _LOGGER.error("Error getting ambient mode: %s", ambient_result)
                         continue
                     dev["params"]["envtemp"] = ambient_result["envtemp"]
-
-                    if not any(
-                        d["endpointId"] == dev["endpointId"]
-                        for d in self.data[family_id]["devices"]
-                    ):
-                        self.data[family_id]["devices"].append(dev)
-
-                    # Get device state
-                    dev_state = await self.query_device_state(
-                        dev["endpointId"], dev["devSession"]
-                    )
-                    dev["state"] = dev_state["data"][0]["state"]
-
-                    # Get device parameters
-                    dev_params = await self.get_device_params(dev)
-                    dev["params"] = dev_params
-
-                    # Get device ambient mode
-                    ambient_mode = await self.get_device_params(dev, ["mode"])
-                    _LOGGER.debug(
-                        "Ambient mode for device %s: %s",
-                        dev["endpointId"],
-                        ambient_mode,
-                    )
-                    dev["params"]["envtemp"] = ambient_mode["envtemp"]
 
                     if not any(
                         d["endpointId"] == dev["endpointId"]
