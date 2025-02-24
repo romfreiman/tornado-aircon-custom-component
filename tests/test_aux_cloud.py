@@ -48,15 +48,12 @@ async def api(mock_session: MagicMock) -> AsyncGenerator[AuxCloudAPI, None]:
         # Set required attributes that would normally be set during login
         api.loginsession = "test_session"
         api.userid = "test_user"
-        _LOGGER.info("here")
-
         yield api
-        _LOGGER.info("API fixture has finished yielding")
     except Exception:
         _LOGGER.exception("Error in api fixture")
         raise
     finally:
-        _LOGGER.info("cleanup")
+        _LOGGER.info("Cleaning up API fixture resources")
         await api.cleanup()
 
 
@@ -500,3 +497,23 @@ async def test_cleanup_external_session(mock_session: MagicMock) -> None:
     mock_session.close = AsyncMock()  # Make close() awaitable
     await api.cleanup()
     mock_session.close.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_cleanup_closed_session(mock_session: MagicMock) -> None:
+    """Test cleanup with already closed session."""
+    api = AuxCloudAPI("test@example.com", "password", region="eu")
+    api.session = mock_session
+    api._session_owner = True
+    mock_session.closed = True
+    mock_session.close = AsyncMock()
+    await api.cleanup()
+    mock_session.close.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_cleanup_none_session() -> None:
+    """Test cleanup with None session."""
+    api = AuxCloudAPI("test@example.com", "password", region="eu")
+    api.session = None
+    await api.cleanup()  # Should not raise any exception

@@ -278,9 +278,10 @@ class AuxCloudAPI:
 
         return all_devices
 
-    async def list_families(self) -> list[dict[str, Any]]:
+    async def list_families(self, retry_count: int = 0) -> list[dict[str, Any]]:
         """Get list of all families."""
         _LOGGER.debug("Fetching list of families")
+        max_retries = 3
 
         # Check if we're logged in
         if not hasattr(self, "loginsession") or not self.loginsession:
@@ -310,11 +311,15 @@ class AuxCloudAPI:
                     )
                     return json_data["data"]["familyList"]
                 if json_data["status"] == self.LOGIN_VALIDATION_FAILED:
+                    if retry_count >= max_retries:
+                        msg = "Login validation failed after retries"
+                        _LOGGER.error(msg)
+                        raise AuxCloudAuthError(msg)
                     # Login validation failed, re-login and retry the request
-                    _LOGGER.debug("Login validation failed, attempting to re-login")
+                    _LOGGER.warning("Login validation failed, attempting to re-login")
                     await self.login()
                     # Retry the request after re-login
-                    return await self.list_families()
+                    return await self.list_families(retry_count + 1)
 
             msg = f"Failed to get families list: {data}"
             _LOGGER.error(msg)
@@ -362,7 +367,48 @@ class AuxCloudAPI:
                         dev["devinfo"] for dev in json_data["data"]["shareFromOther"]
                     ]
 
+                tasks = []
                 for dev in devices:
+                    # Create tasks for all API calls for each device
+                    state_task = self.query_device_state(
+                        dev["endpointId"], dev["devSession"]
+                    )
+                    params_task = self.get_device_params(dev)
+                    ambient_task = self.get_device_params(dev, ["mode"])
+                    tasks.extend([state_task, params_task, ambient_task])
+
+                # Execute all tasks concurrently
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                # Process results in groups of 3 (since we have 3 tasks per device)
+                for i, dev in enumerate(devices):
+                    base_idx = i * 3
+                    state_result = results[base_idx]
+                    params_result = results[base_idx + 1]
+                    ambient_result = results[base_idx + 2]
+
+                    # Handle results, checking for exceptions
+                    if isinstance(state_result, Exception):
+                        _LOGGER.error("Error getting device state: %s", state_result)
+                        continue
+                    dev["state"] = state_result["data"][0]["state"]
+
+                    if isinstance(params_result, Exception):
+                        _LOGGER.error("Error getting device params: %s", params_result)
+                        continue
+                    dev["params"] = params_result
+
+                    if isinstance(ambient_result, Exception):
+                        _LOGGER.error("Error getting ambient mode: %s", ambient_result)
+                        continue
+                    dev["params"]["envtemp"] = ambient_result["envtemp"]
+
+                    if not any(
+                        d["endpointId"] == dev["endpointId"]
+                        for d in self.data[family_id]["devices"]
+                    ):
+                        self.data[family_id]["devices"].append(dev)
+
                     # Get device state
                     dev_state = await self.query_device_state(
                         dev["endpointId"], dev["devSession"]
