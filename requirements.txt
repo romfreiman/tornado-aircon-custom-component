@@ -11,7 +11,7 @@ pytest-asyncio==0.24.0
 dataclasses-json==0.5.14
 fastjsonschema==2.21.1
 json-schema-for-humans==1.0.2
-jsonlines==3.1.0
+jsonlines==4.0.0
 jsonref==1.1.0
 jsonschema==4.23.0
 jsonschema-specifications==2024.10.1
