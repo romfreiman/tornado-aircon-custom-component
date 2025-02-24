@@ -80,7 +80,9 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Tornado climate platform."""
-    client: AuxCloudAPI = hass.data[DOMAIN][config_entry.entry_id]
+    # Get the client from the domain data
+    entry_data = hass.data[DOMAIN][config_entry.entry_id]
+    client = entry_data["client"]
 
     coordinator = AuxCloudDataUpdateCoordinator(hass, client)
     await coordinator.async_refresh()
@@ -370,3 +372,12 @@ class TornadoClimateEntity(ClimateEntity):
             _LOGGER.exception(
                 "Error turning off %s", self._device.get("endpointId", "Unknown")
             )
+
+
+async def async_unload_entry(hass: HomeAssistant) -> None:
+    """Unload Tornado climate platform."""
+    # Clean up the session when unloading the entry
+    session = hass.data[DOMAIN].pop("session", None)
+    if session:
+        await session.close()  # Close the session
+        _LOGGER.info("Closed aiohttp ClientSession for domain: %s", DOMAIN)

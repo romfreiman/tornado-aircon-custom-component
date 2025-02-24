@@ -77,28 +77,37 @@ class AuxCloudConnectionError(AuxCloudError):
 class AuxCloudAPI:
     """API Client for AuxCloud."""
 
+    LOGIN_VALIDATION_FAILED = -30129
+
     def __init__(
         self,
         email: str,
         password: str,
+        session: aiohttp.ClientSession | None = None,
         region: str = "eu",
     ) -> None:
-        """
-        Initialize the API client.
-
-        Args:
-            email: User email address
-            password: User password
-            region: Region for API server ("eu" or "usa")
-
-        """
+        """Initialize the API client."""
         self.url = API_SERVER_URL_EU if region == "eu" else API_SERVER_URL_USA
         self.email = email
         self.password = password
-        self.data: dict[str, Any] = {}  # Store family and device data
+        self.session = session
+        self._session_owner = session is None
+        self.data: dict[str, Any] = {}
         _LOGGER.debug(
             "Initialized AuxCloudAPI with email: %s, region: %s", email, region
         )
+
+    async def _get_session(self) -> aiohttp.ClientSession:
+        """Get aiohttp client session."""
+        if self.session is None:
+            self.session = aiohttp.ClientSession()
+            self._session_owner = True
+        return self.session
+
+    async def cleanup(self) -> None:
+        """Cleanup resources."""
+        if self.session and self._session_owner and not self.session.closed:
+            await self.session.close()
 
     def _get_headers(self, **kwargs: str) -> dict[str, str]:
         """
@@ -160,10 +169,26 @@ class AuxCloudAPI:
     ) -> bool:
         """Login to AuxCloud."""
         try:
-            return await self._perform_login(email, password)
-        except Exception:
-            _LOGGER.exception("Login error")
-            raise
+            success = await self._perform_login(email, password)
+        except (aiohttp.ClientError, TimeoutError) as ex:
+            self._log_and_raise_auth_error(ex)
+            return False  # Unreachable, but satisfies type checker
+        except json.JSONDecodeError as ex:
+            self._log_and_raise_auth_error(ex)
+            return False  # Unreachable, but satisfies type checker
+
+        if not success:
+            msg = "Login failed: Invalid credentials"
+            raise AuxCloudAuthError(msg)
+        # Wait a brief moment after successful login before making other requests
+        await asyncio.sleep(1)
+        return success
+
+    def _log_and_raise_auth_error(self, ex: Exception) -> None:
+        """Log the exception and raises an AuxCloudAuthError."""
+        _LOGGER.exception("Login error: %s", str(ex))
+        msg = f"Login failed: {ex!s}"
+        raise AuxCloudAuthError(msg) from ex
 
     async def _perform_login(
         self, email: str | None = None, password: str | None = None
@@ -193,16 +218,14 @@ class AuxCloudAPI:
             f"{current_time}{TIMESTAMP_TOKEN_ENCRYPT_KEY}".encode()
         ).digest()
 
-        async with (
-            aiohttp.ClientSession() as session,
-            session.post(
-                f"{self.url}/account/login",
-                data=encrypt_aes_cbc_zero_padding(
-                    AES_INITIAL_VECTOR, md5_hash, json_payload.encode()
-                ),
-                headers=self._get_headers(timestamp=f"{current_time}", token=token),
-            ) as resp,
-        ):
+        session = await self._get_session()
+        async with session.post(
+            f"{self.url}/account/login",
+            data=encrypt_aes_cbc_zero_padding(
+                AES_INITIAL_VECTOR, md5_hash, json_payload.encode()
+            ),
+            headers=self._get_headers(timestamp=f"{current_time}", token=token),
+        ) as resp:
             data = await resp.text()
             json_data = json.loads(data)
 
@@ -256,41 +279,45 @@ class AuxCloudAPI:
         return all_devices
 
     async def list_families(self) -> list[dict[str, Any]]:
-        """
-        Get list of all families.
-
-        Returns:
-            List of family dictionaries
-
-        Raises:
-            Exception: If family list fetching fails
-
-        """
+        """Get list of all families."""
         _LOGGER.debug("Fetching list of families")
-        async with (
-            aiohttp.ClientSession() as session,
-            session.post(
-                f"{self.url}/appsync/group/member/getfamilylist",
-                headers=self._get_headers(),
-            ) as response,
-        ):
+
+        # Check if we're logged in
+        if not hasattr(self, "loginsession") or not self.loginsession:
+            _LOGGER.debug("No login session found, attempting to login")
+            await self.login()
+
+        session = await self._get_session()
+        async with session.post(
+            f"{self.url}/appsync/group/member/getfamilylist",
+            headers=self._get_headers(),
+        ) as response:
             data = await response.text()
             json_data = json.loads(data)
 
-            if "status" in json_data and json_data["status"] == 0:
-                self.data = {}
-                for family in json_data["data"]["familyList"]:
-                    self.data[family["familyid"]] = {
-                        "id": family["familyid"],
-                        "name": family["name"],
-                        "rooms": [],
-                        "devices": [],
-                    }
-                _LOGGER.debug(
-                    "Fetched family list: %s", json_data["data"]["familyList"]
-                )
-                return json_data["data"]["familyList"]
+            if "status" in json_data:
+                if json_data["status"] == 0:
+                    self.data = {}
+                    for family in json_data["data"]["familyList"]:
+                        self.data[family["familyid"]] = {
+                            "id": family["familyid"],
+                            "name": family["name"],
+                            "rooms": [],
+                            "devices": [],
+                        }
+                    _LOGGER.debug(
+                        "Fetched family list: %s", json_data["data"]["familyList"]
+                    )
+                    return json_data["data"]["familyList"]
+                if json_data["status"] == self.LOGIN_VALIDATION_FAILED:
+                    # Login validation failed, re-login and retry the request
+                    _LOGGER.debug("Login validation failed, attempting to re-login")
+                    await self.login()
+                    # Retry the request after re-login
+                    return await self.list_families()
+
             msg = f"Failed to get families list: {data}"
+            _LOGGER.error(msg)
             raise AuxCloudApiError(msg)
 
     async def list_devices(
@@ -313,61 +340,60 @@ class AuxCloudAPI:
         _LOGGER.debug(
             "Fetching devices for family_id: %s, shared: %s", family_id, shared
         )
-        async with aiohttp.ClientSession() as session:
-            device_endpoint = (
-                "dev/query?action=select"
-                if not shared
-                else "sharedev/querylist?querytype=shared"
-            )
-            async with session.post(
-                f"{self.url}/appsync/group/{device_endpoint}",
-                data='{"pids":[]}' if not shared else '{"endpointId":""}',
-                headers=self._get_headers(familyid=family_id),
-            ) as response:
-                data = await response.text()
-                json_data = json.loads(data)
+        session = await self._get_session()
+        device_endpoint = (
+            "dev/query?action=select"
+            if not shared
+            else "sharedev/querylist?querytype=shared"
+        )
+        async with session.post(
+            f"{self.url}/appsync/group/{device_endpoint}",
+            data='{"pids":[]}' if not shared else '{"endpointId":""}',
+            headers=self._get_headers(familyid=family_id),
+        ) as response:
+            data = await response.text()
+            json_data = json.loads(data)
 
-                if "status" in json_data and json_data["status"] == 0:
-                    if "endpoints" in json_data["data"]:
-                        devices = json_data["data"]["endpoints"]
-                    elif "shareFromOther" in json_data["data"]:
-                        devices = [
-                            dev["devinfo"]
-                            for dev in json_data["data"]["shareFromOther"]
-                        ]
+            if "status" in json_data and json_data["status"] == 0:
+                if "endpoints" in json_data["data"]:
+                    devices = json_data["data"]["endpoints"]
+                elif "shareFromOther" in json_data["data"]:
+                    devices = [
+                        dev["devinfo"] for dev in json_data["data"]["shareFromOther"]
+                    ]
 
-                    for dev in devices:
-                        # Get device state
-                        dev_state = await self.query_device_state(
-                            dev["endpointId"], dev["devSession"]
-                        )
-                        dev["state"] = dev_state["data"][0]["state"]
-
-                        # Get device parameters
-                        dev_params = await self.get_device_params(dev)
-                        dev["params"] = dev_params
-
-                        # Get device ambient mode
-                        ambient_mode = await self.get_device_params(dev, ["mode"])
-                        _LOGGER.debug(
-                            "Ambient mode for device %s: %s",
-                            dev["endpointId"],
-                            ambient_mode,
-                        )
-                        dev["params"]["envtemp"] = ambient_mode["envtemp"]
-
-                        if not any(
-                            d["endpointId"] == dev["endpointId"]
-                            for d in self.data[family_id]["devices"]
-                        ):
-                            self.data[family_id]["devices"].append(dev)
-
-                    _LOGGER.debug(
-                        "Fetched devices for family_id %s: %s", family_id, devices
+                for dev in devices:
+                    # Get device state
+                    dev_state = await self.query_device_state(
+                        dev["endpointId"], dev["devSession"]
                     )
-                    return devices
-                msg = f"Failed to get devices: {data}"
-                raise AuxCloudApiError(msg)
+                    dev["state"] = dev_state["data"][0]["state"]
+
+                    # Get device parameters
+                    dev_params = await self.get_device_params(dev)
+                    dev["params"] = dev_params
+
+                    # Get device ambient mode
+                    ambient_mode = await self.get_device_params(dev, ["mode"])
+                    _LOGGER.debug(
+                        "Ambient mode for device %s: %s",
+                        dev["endpointId"],
+                        ambient_mode,
+                    )
+                    dev["params"]["envtemp"] = ambient_mode["envtemp"]
+
+                    if not any(
+                        d["endpointId"] == dev["endpointId"]
+                        for d in self.data[family_id]["devices"]
+                    ):
+                        self.data[family_id]["devices"].append(dev)
+
+                _LOGGER.debug(
+                    "Fetched devices for family_id %s: %s", family_id, devices
+                )
+                return devices
+            msg = f"Failed to get devices: {data}"
+            raise AuxCloudApiError(msg)
 
     async def get_device_params(
         self, device: dict[str, Any], params: list[str] | None = None
@@ -429,67 +455,65 @@ class AuxCloudAPI:
 
         """
         _LOGGER.debug("Querying device state for device_id: %s", device_id)
-        async with aiohttp.ClientSession() as session:
-            timestamp = int(time.time())
-            data = {
-                "directive": {
-                    "header": self._get_directive_header(
-                        namespace="DNA.QueryState",
-                        name="queryState",
-                        messageType="controlgw.batch",
-                        message_id_prefix=self.userid,
-                        timestamp=f"{timestamp}",
-                    ),
-                    "payload": {
-                        "studata": [{"did": device_id, "devSession": dev_session}],
-                        "msgtype": "batch",
-                    },
-                }
+        session = await self._get_session()
+        timestamp = int(time.time())
+        data = {
+            "directive": {
+                "header": self._get_directive_header(
+                    namespace="DNA.QueryState",
+                    name="queryState",
+                    messageType="controlgw.batch",
+                    message_id_prefix=self.userid,
+                    timestamp=f"{timestamp}",
+                ),
+                "payload": {
+                    "studata": [{"did": device_id, "devSession": dev_session}],
+                    "msgtype": "batch",
+                },
             }
+        }
 
-            _LOGGER.debug("Sending query state request with data: %s", data)
+        _LOGGER.debug("Sending query state request with data: %s", data)
 
-            async with session.post(
-                f"{self.url}/device/control/v2/querystate",
-                data=json.dumps(data, separators=(",", ":")),
-                headers=self._get_headers(),
-            ) as response:
-                data = await response.text()
-                _LOGGER.debug("Received response: %s", data)
-                json_data = json.loads(data)
+        async with session.post(
+            f"{self.url}/device/control/v2/querystate",
+            data=json.dumps(data, separators=(",", ":")),
+            headers=self._get_headers(),
+        ) as response:
+            data = await response.text()
+            _LOGGER.debug("Received response: %s", data)
+            json_data = json.loads(data)
 
-                if (
-                    "event" in json_data
-                    and "payload" in json_data["event"]
-                    and json_data["event"]["payload"]["status"] == 0
-                ):
-                    _LOGGER.debug(
-                        "Queried device state for device_id %s: %s",
-                        device_id,
-                        json_data["event"]["payload"],
-                    )
-                    return json_data["event"]["payload"]
+            if (
+                "event" in json_data
+                and "payload" in json_data["event"]
+                and json_data["event"]["payload"]["status"] == 0
+            ):
+                _LOGGER.debug(
+                    "Queried device state for device_id %s: %s",
+                    device_id,
+                    json_data["event"]["payload"],
+                )
+                return json_data["event"]["payload"]
 
-                _LOGGER.error("Failed to query device state: %s", data)
-                msg = f"Failed to query device state: {data}"
-                raise AuxCloudApiError(msg)
+            _LOGGER.error("Failed to query device state: %s", data)
+            msg = f"Failed to query device state: {data}"
+            raise AuxCloudApiError(msg)
 
     async def query_device_temperature(
         self, device_id: str, dev_session: str
     ) -> dict[str, Any]:
         """Query device temperature."""
         _LOGGER.debug("Querying device temperature for device_id: %s", device_id)
-        async with (
-            aiohttp.ClientSession() as session,
-            session.post(
-                f"{self.url}/device/control/v2/temperaturesensor",
-                data=json.dumps(
-                    self._build_temperature_query_data(device_id, dev_session),
-                    separators=(",", ":"),
-                ),
-                headers=self._get_headers(),
-            ) as resp,
-        ):
+        session = await self._get_session()
+        async with session.post(
+            f"{self.url}/device/control/v2/temperaturesensor",
+            data=json.dumps(
+                self._build_temperature_query_data(device_id, dev_session),
+                separators=(",", ":"),
+            ),
+            headers=self._get_headers(),
+        ) as resp:
             data = await resp.text()
             _LOGGER.debug("Received response: %s", data)
             json_data = json.loads(data)
@@ -507,6 +531,7 @@ class AuxCloudAPI:
                 return json_data["event"]["payload"]
 
             error_msg = f"Failed to query device temperature: {data}"
+            _LOGGER.error(error_msg)
             raise AuxCloudApiError(error_msg)
 
     def _build_temperature_query_data(
@@ -564,80 +589,80 @@ class AuxCloudAPI:
             msg = "Params and Vals must have the same length"
             raise ValueError(msg)
 
-        async with aiohttp.ClientSession() as session:
-            cookie = json.loads(base64.b64decode(device["cookie"].encode()))
-            mapped_cookie = base64.b64encode(
-                json.dumps(
-                    {
-                        "device": {
-                            "id": cookie["terminalid"],
-                            "key": cookie["aeskey"],
-                            "devSession": device["devSession"],
-                            "aeskey": cookie["aeskey"],
-                            "did": device["endpointId"],
-                            "pid": device["productId"],
-                            "mac": device["mac"],
-                        }
-                    },
-                    separators=(",", ":"),
-                ).encode()
-            ).decode()
-
-            data = {
-                "directive": {
-                    "header": self._get_directive_header(
-                        namespace="DNA.KeyValueControl",
-                        name="KeyValueControl",
-                        message_id_prefix=device["endpointId"],
-                    ),
-                    "endpoint": {
-                        "devicePairedInfo": {
-                            "did": device["endpointId"],
-                            "pid": device["productId"],
-                            "mac": device["mac"],
-                            "devicetypeflag": device["devicetypeFlag"],
-                            "cookie": mapped_cookie,
-                        },
-                        "endpointId": device["endpointId"],
-                        "cookie": {},
+        session = await self._get_session()
+        cookie = json.loads(base64.b64decode(device["cookie"].encode()))
+        mapped_cookie = base64.b64encode(
+            json.dumps(
+                {
+                    "device": {
+                        "id": cookie["terminalid"],
+                        "key": cookie["aeskey"],
                         "devSession": device["devSession"],
-                    },
-                    "payload": {
-                        "act": act,
-                        "params": params,
-                        "vals": vals,
-                    },
-                }
-            }
-
-            if self._is_ambient_mode(params):
-                data["directive"]["payload"]["did"] = device["endpointId"]
-                data["directive"]["payload"]["vals"] = [[{"val": 0, "idx": 1}]]
-
-            async with session.post(
-                f"{self.url}/device/control/v2/sdkcontrol",
-                params={"license": LICENSE},
-                data=json.dumps(data, separators=(",", ":")),
-                headers=self._get_headers(),
-            ) as resp:
-                response_text = await resp.text()
-                json_data = json.loads(response_text)
-
-                if all(
-                    key in json_data.get("event", {}).get("payload", {})
-                    for key in ("data",)
-                ):
-                    response = json.loads(json_data["event"]["payload"]["data"])
-                    _LOGGER.debug(
-                        "Acted on device parameters for device %s: %s", device, response
-                    )
-                    return {
-                        response["params"][i]: response["vals"][i][0]["val"]
-                        for i in range(len(response["params"]))
+                        "aeskey": cookie["aeskey"],
+                        "did": device["endpointId"],
+                        "pid": device["productId"],
+                        "mac": device["mac"],
                     }
+                },
+                separators=(",", ":"),
+            ).encode()
+        ).decode()
 
-                msg = f"Failed to {act} device parameters: {response_text}"
-                raise ValueError(msg)
+        data = {
+            "directive": {
+                "header": self._get_directive_header(
+                    namespace="DNA.KeyValueControl",
+                    name="KeyValueControl",
+                    message_id_prefix=device["endpointId"],
+                ),
+                "endpoint": {
+                    "devicePairedInfo": {
+                        "did": device["endpointId"],
+                        "pid": device["productId"],
+                        "mac": device["mac"],
+                        "devicetypeflag": device["devicetypeFlag"],
+                        "cookie": mapped_cookie,
+                    },
+                    "endpointId": device["endpointId"],
+                    "cookie": {},
+                    "devSession": device["devSession"],
+                },
+                "payload": {
+                    "act": act,
+                    "params": params,
+                    "vals": vals,
+                },
+            }
+        }
+
+        if self._is_ambient_mode(params):
+            data["directive"]["payload"]["did"] = device["endpointId"]
+            data["directive"]["payload"]["vals"] = [[{"val": 0, "idx": 1}]]
+
+        async with session.post(
+            f"{self.url}/device/control/v2/sdkcontrol",
+            params={"license": LICENSE},
+            data=json.dumps(data, separators=(",", ":")),
+            headers=self._get_headers(),
+        ) as resp:
+            response_text = await resp.text()
+            json_data = json.loads(response_text)
+
+            if all(
+                key in json_data.get("event", {}).get("payload", {})
+                for key in ("data",)
+            ):
+                response = json.loads(json_data["event"]["payload"]["data"])
+                _LOGGER.debug(
+                    "Acted on device parameters for device %s: %s", device, response
+                )
+                return {
+                    response["params"][i]: response["vals"][i][0]["val"]
+                    for i in range(len(response["params"]))
+                }
+
+            msg = f"Failed to {act} device parameters: {response_text}"
+            raise ValueError(msg)
 
     def _is_ambient_mode(self, params: list[str]) -> bool:
         """
@@ -660,7 +685,7 @@ class AuxCloudAPI:
             Exception: If refresh operation fails
 
         """
-        _LOGGER.info("Refreshing all data")
+        _LOGGER.debug("Refreshing all data")
         try:
             family_data = await self.list_families()
             tasks = [
