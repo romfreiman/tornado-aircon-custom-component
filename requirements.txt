@@ -16,7 +16,7 @@ jsonref==1.1.0
 jsonschema==4.23.0
 jsonschema-specifications==2024.10.1
 orjson==3.10.12
-simplejson==3.19.2
+simplejson==3.20.1
 pytest==8.3.4
 pytest-aiohttp==1.0.5
 pytest-asyncio==0.24.0
