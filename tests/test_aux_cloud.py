@@ -665,3 +665,128 @@ async def test_cleanup_none_session() -> None:
     api = AuxCloudAPI("test@example.com", "password", region="eu")
     api.session = None
     await api.cleanup()  # Should not raise any exception
+
+
+@pytest.mark.asyncio
+async def test_list_families_cache_hit(
+    api: AuxCloudAPI, mock_session: MagicMock, mock_response: MagicMock
+) -> None:
+    """Test list_families cache hit scenario."""
+    mock_response.text.return_value = json.dumps(
+        {
+            "status": 0,
+            "data": {
+                "familyList": [
+                    {"familyid": "test1", "name": "Home 1"},
+                ]
+            },
+        }
+    )
+    mock_session.post.return_value = mock_response
+
+    # Clear the cache before test
+    api.list_families.cache_clear()
+
+    # First call - should hit the API
+    result1 = await api.list_families()
+    assert mock_session.post.call_count == 1
+    assert len(result1) == 1
+    assert result1[0]["familyid"] == "test1"
+
+    # Second call - should use cached result
+    result2 = await api.list_families()
+    assert mock_session.post.call_count == 1  # Call count shouldn't increase
+    assert result2 == result1  # Results should be identical
+
+    # Clear the cache for subsequent tests
+    api.list_families.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_list_families_cache_clear(
+    api: AuxCloudAPI, mock_session: MagicMock, mock_response: MagicMock
+) -> None:
+    """Test list_families cache clearing behavior."""
+    mock_response.text = AsyncMock(
+        side_effect=[
+            json.dumps(
+                {
+                    "status": 0,
+                    "data": {
+                        "familyList": [
+                            {"familyid": "test1", "name": "Home 1"},
+                        ]
+                    },
+                }
+            ),
+            json.dumps(
+                {
+                    "status": 0,
+                    "data": {
+                        "familyList": [
+                            {"familyid": "test2", "name": "Home 2"},
+                        ]
+                    },
+                }
+            ),
+        ]
+    )
+    mock_session.post.return_value = mock_response
+
+    # Clear the cache before test
+    api.list_families.cache_clear()
+
+    # First call - should hit the API
+    result1 = await api.list_families()
+    assert mock_session.post.call_count == 1
+    assert result1[0]["familyid"] == "test1"
+
+    # Clear the cache manually
+    api.list_families.cache_clear()
+
+    # Next call should hit the API again with different response
+    result2 = await api.list_families()
+    assert mock_session.post.call_count == MIN_HOMES_COUNT
+    assert result2[0]["familyid"] == "test2"
+    assert result1 != result2  # Results should be different
+
+    # Clear the cache for subsequent tests
+    api.list_families.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_list_families_cache_error(
+    api: AuxCloudAPI, mock_session: MagicMock, mock_response: MagicMock
+) -> None:
+    """Test list_families cache behavior with errors."""
+    # First call throws an error
+    mock_session.post.side_effect = TimeoutError("Connection timeout")
+
+    # Clear the cache before test
+    api.list_families.cache_clear()
+
+    # First call - should raise error and not cache
+    with pytest.raises(TimeoutError):
+        await api.list_families()
+
+    # Reset mock for second call
+    mock_session.post.side_effect = None
+    mock_session.post.return_value = mock_response
+    mock_response.text.return_value = json.dumps(
+        {
+            "status": 0,
+            "data": {
+                "familyList": [
+                    {"familyid": "test1", "name": "Home 1"},
+                ]
+            },
+        }
+    )
+
+    # Second call should succeed and not use cache
+    result = await api.list_families()
+    assert len(result) == 1
+    assert result[0]["familyid"] == "test1"
+
+    # Clear the cache for subsequent tests
+    api.list_families.cache_clear()
