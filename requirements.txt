@@ -6,6 +6,7 @@ pytest==8.3.4
 aiohttp==3.11.11
 aiohttp-cors==0.7.0
 aiohttp-fast-zlib==0.2.0
+async-lru==2.0.4
 pytest-aiohttp==1.0.5
 pytest-asyncio==0.24.0
 dataclasses-json==0.5.14

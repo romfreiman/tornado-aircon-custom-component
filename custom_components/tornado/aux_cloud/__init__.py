@@ -11,6 +11,7 @@ import time
 from typing import Any
 
 import aiohttp
+from async_lru import alru_cache
 
 from .util import encrypt_aes_cbc_zero_padding
 
@@ -282,6 +283,7 @@ class AuxCloudAPI:
 
         return all_devices
 
+    @alru_cache(maxsize=1, ttl=3600)  # Cache 1 result for 1 hour
     async def list_families(self, retry_count: int = 0) -> list[dict[str, Any]]:
         """Get list of all families."""
         _LOGGER.debug("Fetching list of families")

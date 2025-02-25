@@ -146,11 +146,20 @@ async def test_list_families_success(
     )
     mock_session.post.return_value = mock_response
 
-    result = await api.list_families()
+    # First call - should hit the API
+    result1 = await api.list_families()
+    assert len(result1) == MIN_HOMES_COUNT
+    assert result1[0]["familyid"] == "test1"
+    assert result1[1]["familyid"] == "test2"
+    assert mock_session.post.call_count == 1
 
-    assert len(result) == MIN_HOMES_COUNT
-    assert result[0]["familyid"] == "test1"
-    assert result[1]["familyid"] == "test2"
+    # Second call within cache TTL - should return cached result
+    result2 = await api.list_families()
+    assert result2 == result1
+    assert mock_session.post.call_count == 1  # No additional API calls
+
+    # Clear the cache for subsequent tests
+    api.list_families.cache_clear()
 
 
 @pytest.mark.asyncio
@@ -180,12 +189,18 @@ async def test_list_families_retry_success(
     # Mock successful login
     api.login = AsyncMock(return_value=True)
 
+    # Clear the cache before test
+    api.list_families.cache_clear()
+
     result = await api.list_families()
 
     assert len(result) == MIN_HOMES_COUNT
     assert result[0]["familyid"] == "test1"
     assert result[1]["familyid"] == "test2"
     api.login.assert_called_once()
+
+    # Clear the cache for subsequent tests
+    api.list_families.cache_clear()
 
 
 @pytest.mark.asyncio
@@ -202,12 +217,18 @@ async def test_list_families_max_retries_exceeded(
     # Mock successful login but requests still fail
     api.login = AsyncMock(return_value=True)
 
+    # Clear the cache before test
+    api.list_families.cache_clear()
+
     with pytest.raises(
         AuxCloudAuthError, match="Login validation failed after retries"
     ):
         await api.list_families()
 
     assert api.login.call_count == MAX_LOGIN_RETRIES
+
+    # Clear the cache for subsequent tests
+    api.list_families.cache_clear()
 
 
 @pytest.mark.asyncio
@@ -220,11 +241,17 @@ async def test_list_families_empty_response(
     )
     mock_session.post.return_value = mock_response
 
+    # Clear the cache before test
+    api.list_families.cache_clear()
+
     result = await api.list_families()
 
     assert isinstance(result, list)
     assert len(result) == 0
     assert api.data == {}
+
+    # Clear the cache for subsequent tests
+    api.list_families.cache_clear()
 
 
 @pytest.mark.asyncio
@@ -232,10 +259,16 @@ async def test_list_families_network_error(
     api: AuxCloudAPI, mock_session: MagicMock
 ) -> None:
     """Test list_families handles network errors."""
+    # Clear the cache before test
+    api.list_families.cache_clear()
+
     mock_session.post.side_effect = TimeoutError("Connection timeout")
 
     with pytest.raises(TimeoutError, match="Connection timeout"):
         await api.list_families()
+
+    # Clear the cache for subsequent tests
+    api.list_families.cache_clear()
 
 
 @pytest.mark.asyncio
@@ -243,11 +276,17 @@ async def test_list_families_invalid_json(
     api: AuxCloudAPI, mock_session: MagicMock, mock_response: MagicMock
 ) -> None:
     """Test list_families handles invalid JSON response."""
+    # Clear the cache before test
+    api.list_families.cache_clear()
+
     mock_session.post.return_value.__aenter__.return_value = mock_response
     mock_response.text.return_value = "Invalid JSON response"
 
     with pytest.raises(AuxCloudApiError):
         await api.list_families()
+
+    # Clear the cache for subsequent tests
+    api.list_families.cache_clear()
 
 
 @pytest.mark.asyncio
@@ -255,6 +294,9 @@ async def test_list_families_missing_login_session(
     api: AuxCloudAPI, mock_session: MagicMock, mock_response: MagicMock
 ) -> None:
     """Test list_families handles missing login session."""
+    # Clear the cache before test
+    api.list_families.cache_clear()
+
     api.loginsession = None
     mock_response.text.return_value = json.dumps(
         {"status": 0, "data": {"familyList": [{"familyid": "test1", "name": "Home 1"}]}}
@@ -270,12 +312,18 @@ async def test_list_families_missing_login_session(
     assert result[0]["familyid"] == "test1"
     api.login.assert_called_once()
 
+    # Clear the cache for subsequent tests
+    api.list_families.cache_clear()
+
 
 @pytest.mark.asyncio
 async def test_list_families_failure(
     api: AuxCloudAPI, mock_session: MagicMock, mock_response: MagicMock
 ) -> None:
     """Test failed family list retrieval."""
+    # Clear the cache before test
+    api.list_families.cache_clear()
+
     # Set up response mock
     mock_response.text = AsyncMock(
         return_value=json.dumps({"status": -1, "msg": "API Error"})
@@ -289,6 +337,9 @@ async def test_list_families_failure(
 
     with pytest.raises(AuxCloudAuthError, match="Login failed for test"):
         await api.list_families()
+
+    # Clear the cache for subsequent tests
+    api.list_families.cache_clear()
 
 
 @pytest.mark.asyncio
