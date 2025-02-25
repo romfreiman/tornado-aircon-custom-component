@@ -298,7 +298,12 @@ class AuxCloudAPI:
             headers=self._get_headers(),
         ) as response:
             data = await response.text()
-            json_data = json.loads(data)
+            try:
+                json_data = json.loads(data)
+            except json.JSONDecodeError as ex:
+                msg = f"Failed to decode JSON: {ex}"
+                _LOGGER.exception(msg)
+                json_data = {"status": -1, "msg": data}
 
             if "status" in json_data:
                 if json_data["status"] == 0:
