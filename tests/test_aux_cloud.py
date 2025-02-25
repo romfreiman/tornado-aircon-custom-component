@@ -17,6 +17,9 @@ from custom_components.tornado.aux_cloud import (
 
 _LOGGER = logging.getLogger(__name__)
 
+MAX_LOGIN_RETRIES = 3  # Maximum number of login retry attempts
+MIN_HOMES_COUNT = 2  # Minimum number of homes in test data
+
 
 @pytest.fixture
 def mock_response() -> MagicMock:
@@ -135,29 +138,8 @@ async def test_list_families_success(
             "status": 0,
             "data": {
                 "familyList": [
-                    {
-                        "familyid": "abc123def456ghi789jkl012mno345p",
-                        "userid": "",
-                        "name": "Test Home",
-                        "icon": "",
-                        "description": "",
-                        "countryCode": "USA",
-                        "familylimit": 0,
-                        "provinceCode": "1",
-                        "cityCode": "10",
-                        "orgname": "",
-                        "createTime": "2024-01-01 00:00:00",
-                        "version": "2024-01-01 00:00:00",
-                        "createUser": "abc123def456ghi789jkl012mno345p",
-                        "grouptype": "",
-                        "master": "abc123def456ghi789jkl012mno345p",
-                        "extend": (
-                            '{"weather":{"city":"10","country":"USA","province":"1"}}'
-                        ),
-                        "zoneInfo": "",
-                        "spaceId": "",
-                        "companyId": "",
-                    }
+                    {"familyid": "test1", "name": "Home 1"},
+                    {"familyid": "test2", "name": "Home 2"},
                 ]
             },
         }
@@ -166,12 +148,127 @@ async def test_list_families_success(
 
     result = await api.list_families()
 
+    assert len(result) == MIN_HOMES_COUNT
+    assert result[0]["familyid"] == "test1"
+    assert result[1]["familyid"] == "test2"
+
+
+@pytest.mark.asyncio
+async def test_list_families_retry_success(
+    api: AuxCloudAPI, mock_session: MagicMock, mock_response: MagicMock
+) -> None:
+    """Test list_families succeeds after retry on login validation failure."""
+    # First call fails with login validation error, second succeeds
+    mock_response.text = AsyncMock(
+        side_effect=[
+            json.dumps({"status": api.LOGIN_VALIDATION_FAILED}),
+            json.dumps(
+                {
+                    "status": 0,
+                    "data": {
+                        "familyList": [
+                            {"familyid": "test1", "name": "Home 1"},
+                            {"familyid": "test2", "name": "Home 2"},
+                        ]
+                    },
+                }
+            ),
+        ]
+    )
+    mock_session.post.return_value = mock_response
+
+    # Mock successful login
+    api.login = AsyncMock(return_value=True)
+
+    result = await api.list_families()
+
+    assert len(result) == MIN_HOMES_COUNT
+    assert result[0]["familyid"] == "test1"
+    assert result[1]["familyid"] == "test2"
+    api.login.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_list_families_max_retries_exceeded(
+    api: AuxCloudAPI, mock_session: MagicMock, mock_response: MagicMock
+) -> None:
+    """Test list_families fails after exceeding max retries."""
+    mock_session.post.return_value.__aenter__.return_value = mock_response
+    # All calls fail with login validation error
+    mock_response.text.return_value = json.dumps(
+        {"status": api.LOGIN_VALIDATION_FAILED}
+    )
+
+    # Mock successful login but requests still fail
+    api.login = AsyncMock(return_value=True)
+
+    with pytest.raises(
+        AuxCloudAuthError, match="Login validation failed after retries"
+    ):
+        await api.list_families()
+
+    assert api.login.call_count == MAX_LOGIN_RETRIES
+
+
+@pytest.mark.asyncio
+async def test_list_families_empty_response(
+    api: AuxCloudAPI, mock_session: MagicMock, mock_response: MagicMock
+) -> None:
+    """Test list_families handles empty family list."""
+    mock_response.text.return_value = json.dumps(
+        {"status": 0, "data": {"familyList": []}}
+    )
+    mock_session.post.return_value = mock_response
+
+    result = await api.list_families()
+
+    assert isinstance(result, list)
+    assert len(result) == 0
+    assert api.data == {}
+
+
+@pytest.mark.asyncio
+async def test_list_families_network_error(
+    api: AuxCloudAPI, mock_session: MagicMock
+) -> None:
+    """Test list_families handles network errors."""
+    mock_session.post.side_effect = TimeoutError("Connection timeout")
+
+    with pytest.raises(TimeoutError, match="Connection timeout"):
+        await api.list_families()
+
+
+@pytest.mark.asyncio
+async def test_list_families_invalid_json(
+    api: AuxCloudAPI, mock_session: MagicMock, mock_response: MagicMock
+) -> None:
+    """Test list_families handles invalid JSON response."""
+    mock_session.post.return_value.__aenter__.return_value = mock_response
+    mock_response.text.return_value = "Invalid JSON response"
+
+    with pytest.raises(AuxCloudApiError):
+        await api.list_families()
+
+
+@pytest.mark.asyncio
+async def test_list_families_missing_login_session(
+    api: AuxCloudAPI, mock_session: MagicMock, mock_response: MagicMock
+) -> None:
+    """Test list_families handles missing login session."""
+    api.loginsession = None
+    mock_response.text.return_value = json.dumps(
+        {"status": 0, "data": {"familyList": [{"familyid": "test1", "name": "Home 1"}]}}
+    )
+    mock_session.post.return_value = mock_response
+
+    # Mock successful login
+    api.login = AsyncMock(return_value=True)
+
+    result = await api.list_families()
+
     assert len(result) == 1
-    assert result[0]["familyid"] == "abc123def456ghi789jkl012mno345p"
-    assert result[0]["name"] == "Test Home"
-    assert result[0]["countryCode"] == "USA"
-    assert result[0]["createTime"] == "2024-01-01 00:00:00"
-    assert result[0]["version"] == "2024-01-01 00:00:00"
+    assert result[0]["familyid"] == "test1"
+    api.login.assert_called_once()
 
 
 @pytest.mark.asyncio
