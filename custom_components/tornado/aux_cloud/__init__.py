@@ -8,10 +8,19 @@ import hashlib
 import json
 import logging
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import aiohttp
 from async_lru import alru_cache
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from .util import encrypt_aes_cbc_zero_padding
 
@@ -73,6 +82,24 @@ class AuxCloudApiError(AuxCloudError):
 
 class AuxCloudConnectionError(AuxCloudError):
     """Connection error occurred."""
+
+
+# Add retry decorator configuration
+def create_retry_decorator(
+    max_attempts: int = 3,
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """Create a retry decorator with specified parameters."""
+    return retry(
+        retry=retry_if_exception_type(
+            (aiohttp.ClientError, TimeoutError, AuxCloudConnectionError)
+        ),
+        wait=wait_exponential(multiplier=1, min=4, max=10),
+        stop=stop_after_attempt(max_attempts),
+        before_sleep=lambda retry_state: _LOGGER.warning(
+            "Request failed, retrying in %s seconds...",
+            retry_state.next_action.sleep,
+        ),
+    )
 
 
 class AuxCloudAPI:
@@ -210,10 +237,11 @@ class AuxCloudAPI:
         msg = f"Login failed: {ex!s}"
         raise AuxCloudAuthError(msg) from ex
 
+    @create_retry_decorator()
     async def _perform_login(
         self, email: str | None = None, password: str | None = None
     ) -> bool:
-        """Perform the actual login operation."""
+        """Perform the actual login operation with retry."""
         email = email if email is not None else self.email
         password = password if password is not None else self.password
         _LOGGER.info("Attempting to login with email: %s", email)
@@ -298,8 +326,9 @@ class AuxCloudAPI:
         return all_devices
 
     @alru_cache(maxsize=1, ttl=3600)  # Cache 1 result for 1 hour
+    @create_retry_decorator()
     async def list_families(self, retry_count: int = 0) -> list[dict[str, Any]]:
-        """Get list of all families."""
+        """Get list of all families with retry."""
         _LOGGER.debug("Fetching list of families")
         max_retries = 3
 
@@ -372,10 +401,11 @@ class AuxCloudAPI:
             _LOGGER.warning("Network error checking shared devices: %s", ex)
             return False
 
+    @create_retry_decorator()
     async def list_devices(
         self, family_id: str, *, shared: bool = False
     ) -> list[dict[str, Any]]:
-        """Get devices for a specific family."""
+        """Get devices for a specific family with retry."""
         _LOGGER.debug(
             "Fetching devices for family_id: %s, shared: %s", family_id, shared
         )
@@ -499,23 +529,11 @@ class AuxCloudAPI:
         vals = [[{"val": val, "idx": 1}] for val in values.values()]
         return await self._act_device_params(device, "set", params, vals)
 
+    @create_retry_decorator()
     async def query_device_state(
         self, device_id: str, dev_session: str
     ) -> dict[str, Any]:
-        """
-        Query device state.
-
-        Args:
-            device_id: Device identifier
-            dev_session: Device session token
-
-        Returns:
-            Dictionary containing device state
-
-        Raises:
-            Exception: If state query fails
-
-        """
+        """Query device state with retry."""
         _LOGGER.debug("Querying device state for device_id: %s", device_id)
         session = await self._get_session()
         timestamp = int(time.time())
@@ -562,10 +580,11 @@ class AuxCloudAPI:
             msg = f"Failed to query device state: {data}"
             raise AuxCloudApiError(msg)
 
+    @create_retry_decorator()
     async def query_device_temperature(
         self, device_id: str, dev_session: str
     ) -> dict[str, Any]:
-        """Query device temperature."""
+        """Query device temperature with retry."""
         _LOGGER.debug("Querying device temperature for device_id: %s", device_id)
         session = await self._get_session()
         async with session.post(
@@ -618,6 +637,7 @@ class AuxCloudAPI:
             }
         }
 
+    @create_retry_decorator()
     async def _act_device_params(
         self,
         device: dict[str, Any],
@@ -625,22 +645,7 @@ class AuxCloudAPI:
         params: list[str] | None = None,
         vals: list[list[dict[str, Any]]] | None = None,
     ) -> dict[str, Any]:
-        """
-        Act on device parameters by getting or setting them.
-
-        Args:
-            device: Device information dictionary
-            act: Action to perform ('get' or 'set')
-            params: List of parameter names
-            vals: List of parameter values for set operations
-
-        Returns:
-            Dictionary mapping parameter names to their values
-
-        Raises:
-            ValueError: If the API request fails or params/vals length mismatch
-
-        """
+        """Act on device parameters with retry."""
         params = params or []
         vals = vals or []
         _LOGGER.debug(
