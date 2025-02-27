@@ -9,6 +9,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import tenacity
 
 from custom_components.tornado.aux_cloud import (
     AuxCloudAPI,
@@ -19,6 +20,7 @@ from custom_components.tornado.aux_cloud import (
 _LOGGER = logging.getLogger(__name__)
 
 MAX_LOGIN_RETRIES = 3  # Maximum number of login retry attempts
+NUM_OF_API_RETRIES = 3  # Number of retries for network errors
 MIN_HOMES_COUNT = 2  # Minimum number of homes in test data
 
 TEST_TEMPERATURE = 25
@@ -264,17 +266,30 @@ async def test_list_families_empty_response(
 async def test_list_families_network_error(
     api: AuxCloudAPI, mock_session: MagicMock
 ) -> None:
-    """Test list_families handles network errors."""
-    # Clear the cache before test
-    api.list_families.cache_clear()
+    """Test list_families handles network errors with retry logic."""
+    try:
+        # Clear the cache before test
+        api.list_families.cache_clear()
 
-    mock_session.post.side_effect = TimeoutError("Connection timeout")
+        # Configure mock to fail with TimeoutError for all attempts
+        mock_session.post.side_effect = TimeoutError("Connection timeout")
 
-    with pytest.raises(TimeoutError, match="Connection timeout"):
-        await api.list_families()
+        # The retry decorator will attempt 3 times before giving up
+        with pytest.raises(tenacity.RetryError) as exc_info:
+            await api.list_families()
 
-    # Clear the cache for subsequent tests
-    api.list_families.cache_clear()
+        # Verify the underlying exception is TimeoutError
+        assert isinstance(exc_info.value.last_attempt.exception(), TimeoutError)
+        assert str(exc_info.value.last_attempt.exception()) == "Connection timeout"
+
+        # Verify the mock was called exactly 3 times (initial + 2 retries)
+        assert mock_session.post.call_count == NUM_OF_API_RETRIES
+
+    finally:
+        # Clear the cache and allow retry timers to complete
+        api.list_families.cache_clear()
+        # Force cleanup of any pending tasks/timers
+        await asyncio.sleep(0.1)
 
 
 @pytest.mark.asyncio
@@ -776,38 +791,46 @@ async def test_list_families_cache_clear(
 async def test_list_families_cache_error(
     api: AuxCloudAPI, mock_session: MagicMock, mock_response: MagicMock
 ) -> None:
-    """Test list_families cache behavior with errors."""
-    # First call throws an error
-    mock_session.post.side_effect = TimeoutError("Connection timeout")
+    """Test list_families cache behavior with errors with retry logic."""
+    try:
+        # Clear the cache before test
+        api.list_families.cache_clear()
 
-    # Clear the cache before test
-    api.list_families.cache_clear()
+        # First call throws an error
+        mock_session.post.side_effect = TimeoutError("Connection timeout")
 
-    # First call - should raise error and not cache
-    with pytest.raises(TimeoutError):
-        await api.list_families()
+        # The retry decorator will attempt 3 times before giving up
+        with pytest.raises(tenacity.RetryError) as exc_info:
+            await api.list_families()
 
-    # Reset mock for second call
-    mock_session.post.side_effect = None
-    mock_session.post.return_value = mock_response
-    mock_response.text.return_value = json.dumps(
-        {
-            "status": 0,
-            "data": {
-                "familyList": [
-                    {"familyid": "test1", "name": "Home 1"},
-                ]
-            },
-        }
-    )
+        # Verify the underlying exception is TimeoutError
+        assert isinstance(exc_info.value.last_attempt.exception(), TimeoutError)
+        assert str(exc_info.value.last_attempt.exception()) == "Connection timeout"
 
-    # Second call should succeed and not use cache
-    result = await api.list_families()
-    assert len(result) == 1
-    assert result[0]["familyid"] == "test1"
+        # Reset mock for second call
+        mock_session.post.side_effect = None
+        mock_session.post.return_value = mock_response
+        mock_response.text.return_value = json.dumps(
+            {
+                "status": 0,
+                "data": {
+                    "familyList": [
+                        {"familyid": "test1", "name": "Home 1"},
+                    ]
+                },
+            }
+        )
 
-    # Clear the cache for subsequent tests
-    api.list_families.cache_clear()
+        # Second call should succeed and not use cache
+        result = await api.list_families()
+        assert len(result) == 1
+        assert result[0]["familyid"] == "test1"
+
+    finally:
+        # Clear the cache and allow retry timers to complete
+        api.list_families.cache_clear()
+        # Force cleanup of any pending tasks/timers
+        await asyncio.sleep(0.1)
 
 
 @pytest.mark.asyncio
