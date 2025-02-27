@@ -94,6 +94,9 @@ class AuxCloudAPI:
         self.session = session
         self._session_owner = session is None
         self.data: dict[str, Any] = {}
+        self.timeout = aiohttp.ClientTimeout(
+            total=30, connect=10, sock_connect=10, sock_read=10
+        )
         _LOGGER.debug(
             "Initialized AuxCloudAPI with email: %s, region: %s", email, region
         )
@@ -104,7 +107,19 @@ class AuxCloudAPI:
             if getattr(self, "_cleaned_up", False):
                 msg = "Cannot create new session after cleanup"
                 raise RuntimeError(msg)
-            self.session = aiohttp.ClientSession()
+            # Create session with improved connection settings
+            connector = aiohttp.TCPConnector(
+                limit=10,  # Limit concurrent connections
+                ttl_dns_cache=300,  # Cache DNS lookups for 5 minutes
+                keepalive_timeout=60,  # Keep connections alive for 60 seconds
+                enable_cleanup_closed=True,  # Clean up closed connections
+                force_close=False,  # Don't force-close connections after each request
+            )
+            self.session = aiohttp.ClientSession(
+                connector=connector,
+                timeout=self.timeout,
+                raise_for_status=True,  # Raise exceptions for 4XX/5XX status codes
+            )
             self._session_owner = True
         return self.session
 
@@ -257,7 +272,7 @@ class AuxCloudAPI:
                 family_id = family["familyid"]
                 # Get regular devices
                 devices = await self.list_devices(family_id)
-                _LOGGER.info("Fetched devices for family %s: %s", family_id, devices)
+                _LOGGER.debug("Fetched devices for family %s: %s", family_id, devices)
                 if devices:
                     all_devices.extend(devices)
 
