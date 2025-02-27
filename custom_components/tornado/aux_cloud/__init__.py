@@ -244,16 +244,7 @@ class AuxCloudAPI:
             raise AuxCloudAuthError(error_msg)
 
     async def get_devices(self) -> list[dict[str, Any]]:
-        """
-        Get all devices across all families.
-
-        Returns:
-            List of device dictionaries
-
-        Raises:
-            Exception: If device fetching fails
-
-        """
+        """Get all devices across all families."""
         _LOGGER.debug("Fetching all devices")
         all_devices = []
         try:
@@ -266,17 +257,25 @@ class AuxCloudAPI:
                 family_id = family["familyid"]
                 # Get regular devices
                 devices = await self.list_devices(family_id)
-                _LOGGER.debug("Fetched devices for family %s: %s", family_id, devices)
-                all_devices.extend(devices)
+                _LOGGER.info("Fetched devices for family %s: %s", family_id, devices)
+                if devices:
+                    all_devices.extend(devices)
 
-                # Get shared devices
-                shared_devices = await self.list_devices(family_id, shared=True)
-                _LOGGER.debug(
-                    "Fetched shared devices for family %s: %s",
-                    family_id,
-                    shared_devices,
-                )
-                all_devices.extend(shared_devices)
+                # Check for shared devices using cached method
+                if await self._has_shared_devices(family_id):
+                    shared_devices = await self.list_devices(family_id, shared=True)
+                    _LOGGER.debug(
+                        "Fetched shared devices for family %s: %s",
+                        family_id,
+                        shared_devices,
+                    )
+                    if shared_devices:
+                        all_devices.extend(shared_devices)
+                else:
+                    _LOGGER.debug(
+                        "No shared devices found for family %s (cached)", family_id
+                    )
+
         except Exception:
             _LOGGER.exception("Error getting devices")
             raise
@@ -336,23 +335,32 @@ class AuxCloudAPI:
             _LOGGER.error(msg)
             raise AuxCloudApiError(msg)
 
+    @alru_cache(maxsize=1, ttl=3600)  # Cache 1 result for 1 hour
+    async def _has_shared_devices(self, family_id: str) -> bool:
+        """Check if family has any shared devices with 1-hour cache."""
+        _LOGGER.debug("Checking for shared devices in family: %s", family_id)
+        try:
+            shared_devices = await self.list_devices(family_id, shared=True)
+            _LOGGER.debug(
+                "Shared devices for family %s: %s",
+                family_id,
+                shared_devices,
+            )
+            return len(shared_devices) > 0
+        except AuxCloudApiError as ex:
+            _LOGGER.warning("API error checking shared devices: %s", ex)
+            return False
+        except AuxCloudAuthError as ex:
+            _LOGGER.warning("Authentication error checking shared devices: %s", ex)
+            return False
+        except aiohttp.ClientError as ex:
+            _LOGGER.warning("Network error checking shared devices: %s", ex)
+            return False
+
     async def list_devices(
         self, family_id: str, *, shared: bool = False
     ) -> list[dict[str, Any]]:
-        """
-        Get devices for a specific family.
-
-        Args:
-            family_id: ID of the family
-            shared: Whether to get shared devices
-
-        Returns:
-            List of device dictionaries
-
-        Raises:
-            Exception: If device list fetching fails
-
-        """
+        """Get devices for a specific family."""
         _LOGGER.debug(
             "Fetching devices for family_id: %s, shared: %s", family_id, shared
         )
@@ -378,7 +386,17 @@ class AuxCloudAPI:
                         dev["devinfo"] for dev in json_data["data"]["shareFromOther"]
                     ]
 
-                tasks = []
+                # Initialize family data structure if needed
+                if family_id not in self.data:
+                    self.data[family_id] = {
+                        "id": family_id,
+                        "name": "",  # Could be populated from family data
+                        "rooms": [],
+                        "devices": [],
+                    }
+
+                # Process devices and update internal cache
+                processed_devices = []
                 for dev in devices:
                     # Create tasks for all API calls for each device
                     state_task = self.query_device_state(
@@ -386,44 +404,41 @@ class AuxCloudAPI:
                     )
                     params_task = self.get_device_params(dev)
                     ambient_task = self.get_device_params(dev, ["mode"])
-                    tasks.extend([state_task, params_task, ambient_task])
+                    results = await asyncio.gather(
+                        state_task, params_task, ambient_task, return_exceptions=True
+                    )
 
-                # Execute all tasks concurrently
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-
-                # Process results in groups of 3 (since we have 3 tasks per device)
-                for i, dev in enumerate(devices):
-                    base_idx = i * 3
-                    state_result = results[base_idx]
-                    params_result = results[base_idx + 1]
-                    ambient_result = results[base_idx + 2]
+                    state_result, params_result, ambient_result = results
 
                     # Handle results, checking for exceptions
-                    if isinstance(state_result, Exception):
-                        _LOGGER.error("Error getting device state: %s", state_result)
-                        continue
-                    dev["state"] = state_result["data"][0]["state"]
+                    if not isinstance(state_result, Exception):
+                        dev["state"] = state_result["data"][0]["state"]
 
-                    if isinstance(params_result, Exception):
-                        _LOGGER.error("Error getting device params: %s", params_result)
-                        continue
-                    dev["params"] = params_result
+                    if not isinstance(params_result, Exception):
+                        dev["params"] = params_result
 
-                    if isinstance(ambient_result, Exception):
-                        _LOGGER.error("Error getting ambient mode: %s", ambient_result)
-                        continue
-                    dev["params"]["envtemp"] = ambient_result["envtemp"]
+                    if not isinstance(ambient_result, Exception):
+                        dev["params"]["envtemp"] = ambient_result["envtemp"]
+                    _LOGGER.debug("Processed device: %s", dev)
+                    processed_devices.append(dev)
 
-                    if not any(
-                        d["endpointId"] == dev["endpointId"]
-                        for d in self.data[family_id]["devices"]
-                    ):
-                        self.data[family_id]["devices"].append(dev)
+                # Update internal cache - replace existing devices for this family
+                if not shared:
+                    self.data[family_id]["devices"] = processed_devices
+                else:
+                    # For shared devices, append to existing devices
+                    existing_ids = {
+                        d["endpointId"] for d in self.data[family_id]["devices"]
+                    }
+                    new_devices = [
+                        d
+                        for d in processed_devices
+                        if d["endpointId"] not in existing_ids
+                    ]
+                    self.data[family_id]["devices"].extend(new_devices)
 
-                _LOGGER.debug(
-                    "Fetched devices for family_id %s: %s", family_id, devices
-                )
-                return devices
+                return processed_devices
+
             msg = f"Failed to get devices: {data}"
             raise AuxCloudApiError(msg)
 
