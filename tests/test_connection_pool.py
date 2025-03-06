@@ -15,6 +15,7 @@ from custom_components.tornado.aux_cloud import AuxCloudAPI
 if TYPE_CHECKING:
     from collections.abc import Coroutine
 
+
 # Constants
 CONNECTION_POOL_LIMIT = 10
 
@@ -84,6 +85,11 @@ async def test_connection_pool_limits() -> None:
     # Track active connections
     active_connections = 0
     max_active_connections = 0
+    connections_tracker = []
+
+    # Event to coordinate test timing
+    connection_barrier = asyncio.Event()
+    all_connections_ready = asyncio.Event()
 
     # Create mock connection response
     mock_response = MagicMock()
@@ -97,11 +103,21 @@ async def test_connection_pool_limits() -> None:
     async def mock_create_connection(*_: Any, **__: Any) -> tuple[MagicMock, MagicMock]:
         nonlocal active_connections, max_active_connections
         active_connections += 1
+        connections_tracker.append(1)  # Add a connection to the tracker
         max_active_connections = max(max_active_connections, active_connections)
+
+        # If we've reached exactly CONNECTION_POOL_LIMIT connections, signal the event
+        if active_connections == CONNECTION_POOL_LIMIT:
+            all_connections_ready.set()
+
+        # Wait for the test to examine the connection state before proceeding
+        await connection_barrier.wait()
+
         try:
             return mock_transport, mock_protocol
         finally:
             active_connections -= 1
+            connections_tracker.pop()  # Remove a connection from the tracker
 
     with patch(
         "aiohttp.connector.TCPConnector._create_direct_connection",
@@ -112,19 +128,43 @@ async def test_connection_pool_limits() -> None:
             session = await api._get_session()
             try:
                 async with session.get("http://example.com") as _:
-                    await asyncio.sleep(0.1)  # Simulate request duration
+                    # This is where the mocked connection is active
+                    pass
             except aiohttp.ClientError:
-                # Log the exception with a specific type instead of a blind catch
                 import logging
 
                 logging.exception("Error during request")
 
-        # Make 15 concurrent requests (more than the limit of 10)
-        tasks: list[Coroutine[Any, Any, None]] = [make_request() for _ in range(15)]
-        await asyncio.gather(*tasks)
+        # Create exactly CONNECTION_POOL_LIMIT + 5 tasks (more than the limit)
+        tasks: list[Coroutine[Any, Any, None]] = [
+            make_request() for _ in range(CONNECTION_POOL_LIMIT + 5)
+        ]
 
-        # Verify connection pool didn't exceed limit
-        assert max_active_connections <= CONNECTION_POOL_LIMIT
+        # Start all tasks
+        running_tasks = [asyncio.create_task(task) for task in tasks]
+
+        # Wait for all connections to be established up to the limit
+        try:
+            # Wait with timeout for the connections to reach the limit
+            await asyncio.wait_for(all_connections_ready.wait(), timeout=5.0)
+
+            # Verify we have exactly CONNECTION_POOL_LIMIT active connections
+            assert len(connections_tracker) == CONNECTION_POOL_LIMIT, (
+                f"Expected exactly {CONNECTION_POOL_LIMIT} concurrent connections, "
+                f"but got {len(connections_tracker)}"
+            )
+
+            # Verify the tracked maximum matches our expectation
+            assert max_active_connections == CONNECTION_POOL_LIMIT, (
+                f"Expected maximum of {CONNECTION_POOL_LIMIT} concurrent connections, "
+                f"but tracked {max_active_connections}"
+            )
+        finally:
+            # Allow all connections to complete
+            connection_barrier.set()
+
+            # Wait for all tasks to complete
+            await asyncio.gather(*running_tasks, return_exceptions=True)
 
     # Cleanup
     await api.cleanup()
