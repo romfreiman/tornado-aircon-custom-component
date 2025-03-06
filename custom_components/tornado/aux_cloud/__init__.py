@@ -7,8 +7,9 @@ import base64
 import hashlib
 import json
 import logging
+import socket
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import aiohttp
 from async_lru import alru_cache
@@ -107,6 +108,22 @@ class AuxCloudAPI:
 
     LOGIN_VALIDATION_FAILED = -30129
 
+    _shared_connector: ClassVar[aiohttp.TCPConnector | None] = None
+    _shared_connector_lock: ClassVar[asyncio.Lock] = asyncio.Lock()
+
+    @classmethod
+    async def get_shared_connector(cls) -> aiohttp.TCPConnector:
+        """Get or create shared connector."""
+        async with cls._shared_connector_lock:
+            if cls._shared_connector is None:
+                cls._shared_connector = aiohttp.TCPConnector(
+                    limit=10,
+                    ttl_dns_cache=300,  # Cache DNS results for 5 minutes
+                    use_dns_cache=True,
+                    family=socket.AF_INET,
+                )
+            return cls._shared_connector
+
     def __init__(
         self,
         email: str,
@@ -134,18 +151,11 @@ class AuxCloudAPI:
             if getattr(self, "_cleaned_up", False):
                 msg = "Cannot create new session after cleanup"
                 raise RuntimeError(msg)
-            # Create session with improved connection settings
-            connector = aiohttp.TCPConnector(
-                limit=10,  # Limit concurrent connections
-                ttl_dns_cache=300,  # Cache DNS lookups for 5 minutes
-                keepalive_timeout=60,  # Keep connections alive for 60 seconds
-                enable_cleanup_closed=True,  # Clean up closed connections
-                force_close=False,  # Don't force-close connections after each request
-            )
+            connector = await self.get_shared_connector()
             self.session = aiohttp.ClientSession(
                 connector=connector,
                 timeout=self.timeout,
-                raise_for_status=True,  # Raise exceptions for 4XX/5XX status codes
+                raise_for_status=True,
             )
             self._session_owner = True
         return self.session
