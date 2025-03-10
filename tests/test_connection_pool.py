@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import socket
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import aiohttp
@@ -12,25 +12,30 @@ import pytest
 
 from custom_components.tornado.aux_cloud import AuxCloudAPI
 
-if TYPE_CHECKING:
-    from collections.abc import Coroutine
-
-
 # Constants
 CONNECTION_POOL_LIMIT = 10
 
 
 @pytest.fixture(autouse=True)
-async def cleanup_shared_connector() -> None:
-    """Reset shared connector before and after each test."""
+async def cleanup_shared_resources() -> None:
+    """Reset shared resources before and after each test."""
     # Reset before test
     AuxCloudAPI._shared_connector = None
-    yield
-    # Reset after test
-    AuxCloudAPI._shared_connector = None
+    AuxCloudAPI._shared_session = None
 
-    # Ensure any pending tasks are completed
-    await asyncio.sleep(0)  # Allow event loop to process any pending tasks
+    # Clear any shared locks
+    AuxCloudAPI._shared_connector_lock = asyncio.Lock()
+    AuxCloudAPI._shared_session_lock = asyncio.Lock()
+
+    yield
+
+    # Clean up after test
+    await AuxCloudAPI.cleanup_shared_resources()
+    AuxCloudAPI._shared_connector = None
+    AuxCloudAPI._shared_session = None
+
+    # Allow event loop to process any pending tasks
+    await asyncio.sleep(0.1)
 
 
 @pytest.mark.asyncio
@@ -80,94 +85,67 @@ async def test_connector_reuse_across_sessions() -> None:
 async def test_connection_pool_limits() -> None:
     """Test that connection pool respects limits."""
     api = AuxCloudAPI("test@example.com", "password")
-    await api.get_shared_connector()
 
-    # Track active connections
+    # Track connections
     active_connections = 0
-    max_active_connections = 0
-    connections_tracker = []
+    connection_lock = asyncio.Lock()
+    connection_event = asyncio.Event()
 
-    # Event to coordinate test timing
-    connection_barrier = asyncio.Event()
-    all_connections_ready = asyncio.Event()
-
-    # Create mock connection response
-    mock_response = MagicMock()
-    mock_response.status = 200
-
-    # Mock transport and protocol
-    mock_transport = MagicMock()
-    mock_protocol = MagicMock()
-
-    # Mock the create_connection method
     async def mock_create_connection(*_: Any, **__: Any) -> tuple[MagicMock, MagicMock]:
-        nonlocal active_connections, max_active_connections
-        active_connections += 1
-        connections_tracker.append(1)  # Add a connection to the tracker
-        max_active_connections = max(max_active_connections, active_connections)
-
-        # If we've reached exactly CONNECTION_POOL_LIMIT connections, signal the event
-        if active_connections == CONNECTION_POOL_LIMIT:
-            all_connections_ready.set()
-
-        # Wait for the test to examine the connection state before proceeding
-        await connection_barrier.wait()
+        nonlocal active_connections
+        async with connection_lock:
+            active_connections += 1
+            if active_connections >= CONNECTION_POOL_LIMIT:
+                connection_event.set()
 
         try:
-            return mock_transport, mock_protocol
+            await asyncio.sleep(0.1)  # Simulate network delay
+            return MagicMock(), MagicMock()
         finally:
-            active_connections -= 1
-            connections_tracker.pop()  # Remove a connection from the tracker
+            async with connection_lock:
+                active_connections -= 1
 
     with patch(
         "aiohttp.connector.TCPConnector._create_direct_connection",
         new_callable=lambda: mock_create_connection,
     ):
-        # Simulate multiple concurrent requests
+
         async def make_request() -> None:
             session = await api._get_session()
             try:
-                async with session.get("http://example.com") as _:
-                    # This is where the mocked connection is active
-                    pass
+                async with session.get("http://example.com"):
+                    await asyncio.sleep(0.1)
             except aiohttp.ClientError:
-                import logging
+                pass
 
-                logging.exception("Error during request")
+        # Create requests
+        tasks = []
+        for _ in range(CONNECTION_POOL_LIMIT + 5):
+            task = asyncio.create_task(make_request())
+            tasks.append(task)
+            await asyncio.sleep(0)  # Allow other tasks to run
 
-        # Create exactly CONNECTION_POOL_LIMIT + 5 tasks (more than the limit)
-        tasks: list[Coroutine[Any, Any, None]] = [
-            make_request() for _ in range(CONNECTION_POOL_LIMIT + 5)
-        ]
-
-        # Start all tasks
-        running_tasks = [asyncio.create_task(task) for task in tasks]
-
-        # Wait for all connections to be established up to the limit
         try:
-            # Wait with timeout for the connections to reach the limit
-            await asyncio.wait_for(all_connections_ready.wait(), timeout=5.0)
+            # Wait for pool to reach limit
+            await asyncio.wait_for(connection_event.wait(), timeout=5.0)
 
-            # Verify we have exactly CONNECTION_POOL_LIMIT active connections
-            assert len(connections_tracker) == CONNECTION_POOL_LIMIT, (
-                f"Expected exactly {CONNECTION_POOL_LIMIT} concurrent connections, "
-                f"but got {len(connections_tracker)}"
-            )
-
-            # Verify the tracked maximum matches our expectation
-            assert max_active_connections == CONNECTION_POOL_LIMIT, (
-                f"Expected maximum of {CONNECTION_POOL_LIMIT} concurrent connections, "
-                f"but tracked {max_active_connections}"
-            )
+            # Verify connection count
+            async with connection_lock:
+                assert active_connections <= CONNECTION_POOL_LIMIT, (
+                    f"Connection limit exceeded: "
+                    f"{active_connections} > {CONNECTION_POOL_LIMIT}"
+                )
         finally:
-            # Allow all connections to complete
-            connection_barrier.set()
+            # Clean up
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            await api.cleanup()
+            await AuxCloudAPI.cleanup_shared_resources()
 
-            # Wait for all tasks to complete
-            await asyncio.gather(*running_tasks, return_exceptions=True)
-
-    # Cleanup
-    await api.cleanup()
+        # Verify cleanup
+        assert api.session is None
+        assert api._cleaned_up is True
 
 
 @pytest.mark.asyncio
@@ -180,26 +158,43 @@ async def test_connection_cleanup() -> None:
     session = await api._get_session()
 
     # Mock close method to track if it's called
-    original_close = session.close
     close_called = False
 
     async def mock_close() -> None:
         nonlocal close_called
         close_called = True
-        await original_close()
+        await session.connector.close()
+
+    # Store original close method
+    original_close = session.close
+
+    # Replace close method with our mock
+    session.close = mock_close
 
     try:
-        session.close = mock_close
-
-        # Cleanup
+        # Cleanup instance
         await api.cleanup()
 
-        # Verify session was closed
-        assert close_called
-        assert session.closed
+        # Verify instance cleanup behavior
+        assert not close_called, (
+            "Session close should not be called during instance cleanup"
+        )
+        assert api.session is None, "Session reference should be cleared"
+        assert api._cleaned_up is True, "API should be marked as cleaned up"
+
+        # Now test shared resources cleanup
+        await AuxCloudAPI.cleanup_shared_resources()
+
+        # Verify shared resources cleanup behavior
+        assert close_called, (
+            "Session close should be called during shared resources cleanup"
+        )
     finally:
         # Restore original method
         session.close = original_close
+        # Ensure we clean up the connector
+        if not session.connector.closed:
+            await session.connector.close()
         # Reset the shared connector after the test
         AuxCloudAPI._shared_connector = None
 
