@@ -110,19 +110,40 @@ class AuxCloudAPI:
 
     _shared_connector: ClassVar[aiohttp.TCPConnector | None] = None
     _shared_connector_lock: ClassVar[asyncio.Lock] = asyncio.Lock()
+    _shared_session: ClassVar[aiohttp.ClientSession | None] = None
+    _shared_session_lock: ClassVar[asyncio.Lock] = asyncio.Lock()
 
     @classmethod
     async def get_shared_connector(cls) -> aiohttp.TCPConnector:
         """Get or create shared connector."""
         async with cls._shared_connector_lock:
-            if cls._shared_connector is None:
+            if cls._shared_connector is None or cls._shared_connector.closed:
                 cls._shared_connector = aiohttp.TCPConnector(
                     limit=10,
                     ttl_dns_cache=300,  # Cache DNS results for 5 minutes
                     use_dns_cache=True,
                     family=socket.AF_INET,
+                    keepalive_timeout=30,
                 )
             return cls._shared_connector
+
+    @classmethod
+    async def get_shared_session(cls) -> aiohttp.ClientSession:
+        """Get or create shared session."""
+        async with cls._shared_session_lock:
+            if cls._shared_session is None or cls._shared_session.closed:
+                connector = await cls.get_shared_connector()
+                cls._shared_session = aiohttp.ClientSession(
+                    connector=connector,
+                    timeout=aiohttp.ClientTimeout(
+                        total=30, connect=10, sock_connect=10, sock_read=10
+                    ),
+                    raise_for_status=True,
+                )
+                _LOGGER.info(
+                    "Created new shared aiohttp session: %s", id(cls._shared_session)
+                )
+            return cls._shared_session
 
     def __init__(
         self,
@@ -136,35 +157,68 @@ class AuxCloudAPI:
         self.email = email
         self.password = password
         self.session = session
+        # If session is provided externally, we don't own it
         self._session_owner = session is None
         self.data: dict[str, Any] = {}
         self.timeout = aiohttp.ClientTimeout(
             total=30, connect=10, sock_connect=10, sock_read=10
         )
-        _LOGGER.debug(
+        _LOGGER.info(
             "Initialized AuxCloudAPI with email: %s, region: %s", email, region
         )
 
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get aiohttp client session."""
-        if self.session is None:
-            if getattr(self, "_cleaned_up", False):
-                msg = "Cannot create new session after cleanup"
-                raise RuntimeError(msg)
-            connector = await self.get_shared_connector()
-            self.session = aiohttp.ClientSession(
-                connector=connector,
-                timeout=self.timeout,
-                raise_for_status=True,
-            )
-            self._session_owner = True
-        return self.session
+        if self._session_owner:
+            if self.session is None or self.session.closed:
+                if getattr(self, "_cleaned_up", False):
+                    msg = "Cannot create new session after cleanup"
+                    raise RuntimeError(msg)
+                self.session = await self.get_shared_session()
+                _LOGGER.debug("Using shared session: %s", id(self.session))
+            return self.session
+
+        return await self.get_shared_session()
 
     async def cleanup(self) -> None:
-        """Cleanup resources."""
-        if self.session and self._session_owner and not self.session.closed:
-            await self.session.close()
+        """Clean up resources."""
+        # We never close the session in instance cleanup
+        # External sessions are managed by their owners
+        # Shared sessions are managed by cleanup_shared_resources
+
+        # Just clear the reference and mark as cleaned up
+        self.session = None
         self._cleaned_up = True
+
+    @classmethod
+    async def cleanup_shared_resources(cls) -> None:
+        """Cleanup shared resources."""
+        # First cleanup session since it depends on the connector
+        session = None
+        async with cls._shared_session_lock:
+            if cls._shared_session and not cls._shared_session.closed:
+                session = cls._shared_session
+                cls._shared_session = None
+
+        if session:
+            await session.close()
+
+        # Then cleanup connector
+        connector = None
+        async with cls._shared_connector_lock:
+            if cls._shared_connector and not cls._shared_connector.closed:
+                connector = cls._shared_connector
+                cls._shared_connector = None
+
+        if connector:
+            await connector.close()
+
+        # Ensure the shared resources are fully cleaned up
+        async with cls._shared_session_lock:
+            cls._shared_session = None
+
+        async with cls._shared_connector_lock:
+            cls._shared_connector = None
 
     def _get_headers(self, **kwargs: str) -> dict[str, str]:
         """
@@ -299,6 +353,12 @@ class AuxCloudAPI:
     async def get_devices(self) -> list[dict[str, Any]]:
         """Get all devices across all families."""
         _LOGGER.debug("Fetching all devices")
+        if self.session and hasattr(self.session.connector, "size"):
+            _LOGGER.info(
+                "Connection pool stats - Size: %s, Acquired: %s",
+                self.session.connector.size,
+                self.session.connector.acquired,
+            )
         all_devices = []
         try:
             # First get all families

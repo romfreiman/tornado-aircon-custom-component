@@ -8,6 +8,7 @@ from types import TracebackType
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import aiohttp
 import pytest
 import tenacity
 
@@ -18,6 +19,8 @@ from custom_components.tornado.aux_cloud import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+CONNECTION_POOL_LIMIT = 10  # Connection pool limit
 
 MAX_LOGIN_RETRIES = 3  # Maximum number of login retry attempts
 NUM_OF_API_RETRIES = 3  # Number of retries for network errors
@@ -40,48 +43,69 @@ def mock_response() -> MagicMock:
 
 
 @pytest.fixture
-def mock_session() -> MagicMock:
+def mock_connector() -> MagicMock:
+    """Mock TCP connector."""
+    connector = MagicMock()
+    connector.closed = False
+    connector.close = AsyncMock()  # Make close() awaitable
+    connector._acquired = set()  # Mock the _acquired set
+    connector.size = 100
+    connector.acquired = 0
+    return connector
+
+
+@pytest.fixture
+def mock_session(mock_connector: MagicMock) -> MagicMock:
     """Mock aiohttp ClientSession."""
     session = MagicMock()
     session.__aenter__ = AsyncMock(return_value=session)
     session.__aexit__ = AsyncMock()
     session.closed = False
+    session.close = AsyncMock()  # Make close() awaitable
+    session.connector = mock_connector
     return session
 
 
 @pytest.fixture
 async def api(mock_session: MagicMock) -> AsyncGenerator[AuxCloudAPI, None]:
-    """Create API instance with mocked login and session."""
+    """Create API instance with mocked session."""
     try:
-        api = AuxCloudAPI(
-            "test@example.com", "password", session=mock_session, region="eu"
-        )
-        # Set required attributes that would normally be set during login
-        api.loginsession = "test_session"
-        api.userid = "test_user"
-        yield api
-    except Exception:
-        _LOGGER.exception("Error in api fixture")
-        raise
+        with patch.object(
+            AuxCloudAPI, "get_shared_session", AsyncMock(return_value=mock_session)
+        ):
+            api = AuxCloudAPI(
+                "test@example.com", "password", session=mock_session, region="eu"
+            )
+            api.loginsession = "test_session"
+            api.userid = "test_user"
+            yield api
     finally:
-        _LOGGER.info("Cleaning up API fixture resources")
         await api.cleanup()
 
 
 @pytest.mark.asyncio
 async def test_login_success(mock_session: MagicMock, mock_response: MagicMock) -> None:
     """Test successful login."""
-    mock_session.post.return_value = mock_response
-    api = AuxCloudAPI("test@example.com", "password", session=mock_session, region="eu")
     mock_response.text.return_value = json.dumps(
         {"status": 0, "loginsession": "session123", "userid": "user123"}
     )
+    mock_session.post.return_value = mock_response
 
-    result = await api.login()
+    with patch.object(
+        AuxCloudAPI, "get_shared_session", AsyncMock(return_value=mock_session)
+    ):
+        api = AuxCloudAPI(
+            "test@example.com", "password", session=mock_session, region="eu"
+        )
 
-    assert result is True
-    assert api.loginsession == "session123"
-    assert api.userid == "user123"
+        result = await api.login()
+
+        assert result is True
+        assert api.loginsession == "session123"
+        assert api.userid == "user123"
+
+        mock_session.post.assert_called_once()
+        await api.cleanup()
 
 
 @pytest.mark.asyncio
@@ -107,10 +131,12 @@ async def test_login_error_handling(
             pass
 
         async def text(self) -> str:
-            # Return a JSON string simulating a failed login.
             return json.dumps({"status": 1, "msg": "Invalid credentials"})
 
     class FakeClientSession:
+        def __init__(self, **kwargs: Any) -> None:
+            pass
+
         async def __aenter__(self) -> "FakeClientSession":
             return self
 
@@ -123,16 +149,13 @@ async def test_login_error_handling(
             pass
 
         def post(self, url: str, **kwargs: Any) -> FakeResponse:
-            # Ignore url and kwargs as they're not used in the test implementation
             _ = url, kwargs
             return FakeResponse()
 
-    # Patch aiohttp.ClientSession to use FakeClientSession.
     with (
         patch("aiohttp.ClientSession", FakeClientSession),
         pytest.raises(AuxCloudAuthError, match="Login failed: Invalid credentials"),
     ):
-        # When login is called, the fake session/response chain will yield a failure.
         await api.login()
 
 
@@ -154,19 +177,16 @@ async def test_list_families_success(
     )
     mock_session.post.return_value = mock_response
 
-    # First call - should hit the API
     result1 = await api.list_families()
     assert len(result1) == MIN_HOMES_COUNT
     assert result1[0]["familyid"] == "test1"
     assert result1[1]["familyid"] == "test2"
     assert mock_session.post.call_count == 1
 
-    # Second call within cache TTL - should return cached result
     result2 = await api.list_families()
     assert result2 == result1
-    assert mock_session.post.call_count == 1  # No additional API calls
+    assert mock_session.post.call_count == 1
 
-    # Clear the cache for subsequent tests
     api.list_families.cache_clear()
 
 
@@ -175,7 +195,6 @@ async def test_list_families_retry_success(
     api: AuxCloudAPI, mock_session: MagicMock, mock_response: MagicMock
 ) -> None:
     """Test list_families succeeds after retry on login validation failure."""
-    # First call fails with login validation error, second succeeds
     mock_response.text = AsyncMock(
         side_effect=[
             json.dumps({"status": api.LOGIN_VALIDATION_FAILED}),
@@ -194,10 +213,8 @@ async def test_list_families_retry_success(
     )
     mock_session.post.return_value = mock_response
 
-    # Mock successful login
     api.login = AsyncMock(return_value=True)
 
-    # Clear the cache before test
     api.list_families.cache_clear()
 
     result = await api.list_families()
@@ -207,7 +224,6 @@ async def test_list_families_retry_success(
     assert result[1]["familyid"] == "test2"
     api.login.assert_called_once()
 
-    # Clear the cache for subsequent tests
     api.list_families.cache_clear()
 
 
@@ -217,15 +233,12 @@ async def test_list_families_max_retries_exceeded(
 ) -> None:
     """Test list_families fails after exceeding max retries."""
     mock_session.post.return_value.__aenter__.return_value = mock_response
-    # All calls fail with login validation error
     mock_response.text.return_value = json.dumps(
         {"status": api.LOGIN_VALIDATION_FAILED}
     )
 
-    # Mock successful login but requests still fail
     api.login = AsyncMock(return_value=True)
 
-    # Clear the cache before test
     api.list_families.cache_clear()
 
     with pytest.raises(
@@ -235,7 +248,6 @@ async def test_list_families_max_retries_exceeded(
 
     assert api.login.call_count == MAX_LOGIN_RETRIES
 
-    # Clear the cache for subsequent tests
     api.list_families.cache_clear()
 
 
@@ -249,7 +261,6 @@ async def test_list_families_empty_response(
     )
     mock_session.post.return_value = mock_response
 
-    # Clear the cache before test
     api.list_families.cache_clear()
 
     result = await api.list_families()
@@ -258,7 +269,6 @@ async def test_list_families_empty_response(
     assert len(result) == 0
     assert api.data == {}
 
-    # Clear the cache for subsequent tests
     api.list_families.cache_clear()
 
 
@@ -268,27 +278,20 @@ async def test_list_families_network_error(
 ) -> None:
     """Test list_families handles network errors with retry logic."""
     try:
-        # Clear the cache before test
         api.list_families.cache_clear()
 
-        # Configure mock to fail with TimeoutError for all attempts
         mock_session.post.side_effect = TimeoutError("Connection timeout")
 
-        # The retry decorator will attempt 3 times before giving up
         with pytest.raises(tenacity.RetryError) as exc_info:
             await api.list_families()
 
-        # Verify the underlying exception is TimeoutError
         assert isinstance(exc_info.value.last_attempt.exception(), TimeoutError)
         assert str(exc_info.value.last_attempt.exception()) == "Connection timeout"
 
-        # Verify the mock was called exactly 3 times (initial + 2 retries)
         assert mock_session.post.call_count == NUM_OF_API_RETRIES
 
     finally:
-        # Clear the cache and allow retry timers to complete
         api.list_families.cache_clear()
-        # Force cleanup of any pending tasks/timers
         await asyncio.sleep(0.1)
 
 
@@ -297,7 +300,6 @@ async def test_list_families_invalid_json(
     api: AuxCloudAPI, mock_session: MagicMock, mock_response: MagicMock
 ) -> None:
     """Test list_families handles invalid JSON response."""
-    # Clear the cache before test
     api.list_families.cache_clear()
 
     mock_session.post.return_value.__aenter__.return_value = mock_response
@@ -306,7 +308,6 @@ async def test_list_families_invalid_json(
     with pytest.raises(AuxCloudApiError):
         await api.list_families()
 
-    # Clear the cache for subsequent tests
     api.list_families.cache_clear()
 
 
@@ -315,7 +316,6 @@ async def test_list_families_missing_login_session(
     api: AuxCloudAPI, mock_session: MagicMock, mock_response: MagicMock
 ) -> None:
     """Test list_families handles missing login session."""
-    # Clear the cache before test
     api.list_families.cache_clear()
 
     api.loginsession = None
@@ -324,7 +324,6 @@ async def test_list_families_missing_login_session(
     )
     mock_session.post.return_value = mock_response
 
-    # Mock successful login
     api.login = AsyncMock(return_value=True)
 
     result = await api.list_families()
@@ -333,7 +332,6 @@ async def test_list_families_missing_login_session(
     assert result[0]["familyid"] == "test1"
     api.login.assert_called_once()
 
-    # Clear the cache for subsequent tests
     api.list_families.cache_clear()
 
 
@@ -342,16 +340,12 @@ async def test_list_families_failure(
     api: AuxCloudAPI, mock_session: MagicMock, mock_response: MagicMock
 ) -> None:
     """Test failed family list retrieval."""
-    # Clear the cache before test
     api.list_families.cache_clear()
 
-    # Set up response mock
     mock_response.text = AsyncMock(
         return_value=json.dumps({"status": -1, "msg": "API Error"})
     )
-    # Set up session mock
     mock_session.post.return_value = mock_response
-    # Make login raise an exception
     api.loginsession = None
     api.userid = None
     api.login = AsyncMock(side_effect=AuxCloudAuthError("Login failed for test"))
@@ -359,7 +353,6 @@ async def test_list_families_failure(
     with pytest.raises(AuxCloudAuthError, match="Login failed for test"):
         await api.list_families()
 
-    # Clear the cache for subsequent tests
     api.list_families.cache_clear()
 
 
@@ -367,7 +360,6 @@ async def test_list_families_failure(
 async def test_get_devices(api: AuxCloudAPI) -> None:
     """Test getting all devices."""
     try:
-        # Clear any existing caches before test
         api._has_shared_devices.cache_clear()
         api.list_families.cache_clear()
 
@@ -441,9 +433,9 @@ async def test_get_devices(api: AuxCloudAPI) -> None:
             }
         }
         device_params = {"temp": 280, "ac_mode": 1, "ac_mark": 2, "pwr": 0}
-        ambient_mode = {"envtemp": 220}  # 22.0 degrees
+        ambient_mode = {"envtemp": 220}
 
-        temp_constant = 280  # Define constant for temperature
+        temp_constant = 280
         with (
             patch.object(api, "list_families", AsyncMock(return_value=families)),
             patch.object(api, "list_devices", AsyncMock(side_effect=[devices, []])),
@@ -468,10 +460,8 @@ async def test_get_devices(api: AuxCloudAPI) -> None:
             )
 
     finally:
-        # Clear all caches and cancel their timers
         api._has_shared_devices.cache_clear()
         api.list_families.cache_clear()
-        # Force cleanup of any pending tasks
         await asyncio.sleep(0)
 
 
@@ -603,7 +593,6 @@ async def test_query_device_temperature_failure(
     api: AuxCloudAPI, mock_session: MagicMock, mock_response: MagicMock
 ) -> None:
     """Test device temperature query failure."""
-    # Set up the mock to work with async context manager
     mock_session.post.return_value.__aenter__.return_value = mock_response
     mock_response.text.return_value = json.dumps(
         {"event": {"payload": {"status": -1, "msg": "Temperature query failed"}}}
@@ -622,13 +611,11 @@ async def test_act_device_params_mismatch(api: AuxCloudAPI) -> None:
         "mac": "00:11:22:33:44:55",
         "devicetypeFlag": "flag1",
         "devSession": "sess1",
-        # Using a valid cookie string as expected by the implementation.
         "cookie": (
             "eyJkZXZpY2UiOiB7InRlcm1pbmFsaWQiOiAidGVybTEiLCAiYWVza2V5IjogImtleTEifX0="
         ),
     }
     with pytest.raises(ValueError, match="Params and Vals must have the same length"):
-        # Directly call _act_device_params with mismatching params/vals.
         await api._act_device_params(device, "set", ["temp"], [])
 
 
@@ -636,12 +623,11 @@ async def test_act_device_params_mismatch(api: AuxCloudAPI) -> None:
 async def test_refresh_success(api: AuxCloudAPI) -> None:
     """Test refresh function when family and device fetching succeed."""
     test_families = [{"familyid": "fam1"}]
-    # Patch list_families and list_devices to simulate successful fetches.
     with (
         patch.object(api, "list_families", AsyncMock(return_value=test_families)),
         patch.object(api, "list_devices", AsyncMock(return_value=[])),
     ):
-        await api.refresh()  # Should complete without raising an exception.
+        await api.refresh()
 
 
 @pytest.mark.asyncio
@@ -659,24 +645,59 @@ async def test_refresh_failure(api: AuxCloudAPI) -> None:
 
 
 @pytest.mark.asyncio
+async def test_cleanup_shared_resources(mock_session: MagicMock) -> None:
+    """Test cleanup of shared resources."""
+    connector = MagicMock()
+    connector.close = AsyncMock()
+    connector.closed = False
+
+    mock_session.closed = False
+    mock_session.close = AsyncMock()
+
+    with patch.object(
+        AuxCloudAPI, "get_shared_connector", AsyncMock(return_value=connector)
+    ) and patch.object(
+        AuxCloudAPI, "get_shared_session", AsyncMock(return_value=mock_session)
+    ):
+        AuxCloudAPI._shared_connector = connector
+        AuxCloudAPI._shared_session = mock_session
+
+        await AuxCloudAPI.cleanup_shared_resources()
+
+        assert AuxCloudAPI._shared_connector is None
+        assert AuxCloudAPI._shared_session is None
+        mock_session.close.assert_called_once()
+        connector.close.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_cleanup_owned_session(mock_session: MagicMock) -> None:
-    """Test cleanup with owned session."""
-    api = AuxCloudAPI(
-        "test@example.com", "password", region="eu"
-    )  # No session provided
+    """Test cleanup with owned session (shared session)."""
+    api = AuxCloudAPI("test@example.com", "password", region="eu")
     api.session = mock_session
-    api._session_owner = True
-    mock_session.close = AsyncMock()  # Make close() awaitable
+    api._session_owner = True  # Using shared session
+
+    mock_session.close = AsyncMock()
+
     await api.cleanup()
-    mock_session.close.assert_called_once()
+
+    assert api.session is None
+    assert api._cleaned_up is True
+    mock_session.close.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_cleanup_external_session(mock_session: MagicMock) -> None:
     """Test cleanup with external session."""
     api = AuxCloudAPI("test@example.com", "password", session=mock_session, region="eu")
-    mock_session.close = AsyncMock()  # Make close() awaitable
+    assert api._session_owner is False
+
+    mock_session.close = AsyncMock()
+
     await api.cleanup()
+
+    assert api.session is None
+    assert api._cleaned_up is True
     mock_session.close.assert_not_called()
 
 
@@ -688,7 +709,11 @@ async def test_cleanup_closed_session(mock_session: MagicMock) -> None:
     api._session_owner = True
     mock_session.closed = True
     mock_session.close = AsyncMock()
+
     await api.cleanup()
+
+    assert api.session is None
+    assert api._cleaned_up is True
     mock_session.close.assert_not_called()
 
 
@@ -697,7 +722,7 @@ async def test_cleanup_none_session() -> None:
     """Test cleanup with None session."""
     api = AuxCloudAPI("test@example.com", "password", region="eu")
     api.session = None
-    await api.cleanup()  # Should not raise any exception
+    await api.cleanup()
 
 
 @pytest.mark.asyncio
@@ -717,21 +742,17 @@ async def test_list_families_cache_hit(
     )
     mock_session.post.return_value = mock_response
 
-    # Clear the cache before test
     api.list_families.cache_clear()
 
-    # First call - should hit the API
     result1 = await api.list_families()
     assert mock_session.post.call_count == 1
     assert len(result1) == 1
     assert result1[0]["familyid"] == "test1"
 
-    # Second call - should use cached result
     result2 = await api.list_families()
-    assert mock_session.post.call_count == 1  # Call count shouldn't increase
-    assert result2 == result1  # Results should be identical
+    assert mock_session.post.call_count == 1
+    assert result2 == result1
 
-    # Clear the cache for subsequent tests
     api.list_families.cache_clear()
 
 
@@ -766,24 +787,19 @@ async def test_list_families_cache_clear(
     )
     mock_session.post.return_value = mock_response
 
-    # Clear the cache before test
     api.list_families.cache_clear()
 
-    # First call - should hit the API
     result1 = await api.list_families()
     assert mock_session.post.call_count == 1
     assert result1[0]["familyid"] == "test1"
 
-    # Clear the cache manually
     api.list_families.cache_clear()
 
-    # Next call should hit the API again with different response
     result2 = await api.list_families()
     assert mock_session.post.call_count == MIN_HOMES_COUNT
     assert result2[0]["familyid"] == "test2"
-    assert result1 != result2  # Results should be different
+    assert result1 != result2
 
-    # Clear the cache for subsequent tests
     api.list_families.cache_clear()
 
 
@@ -793,21 +809,16 @@ async def test_list_families_cache_error(
 ) -> None:
     """Test list_families cache behavior with errors with retry logic."""
     try:
-        # Clear the cache before test
         api.list_families.cache_clear()
 
-        # First call throws an error
         mock_session.post.side_effect = TimeoutError("Connection timeout")
 
-        # The retry decorator will attempt 3 times before giving up
         with pytest.raises(tenacity.RetryError) as exc_info:
             await api.list_families()
 
-        # Verify the underlying exception is TimeoutError
         assert isinstance(exc_info.value.last_attempt.exception(), TimeoutError)
         assert str(exc_info.value.last_attempt.exception()) == "Connection timeout"
 
-        # Reset mock for second call
         mock_session.post.side_effect = None
         mock_session.post.return_value = mock_response
         mock_response.text.return_value = json.dumps(
@@ -821,15 +832,12 @@ async def test_list_families_cache_error(
             }
         )
 
-        # Second call should succeed and not use cache
         result = await api.list_families()
         assert len(result) == 1
         assert result[0]["familyid"] == "test1"
 
     finally:
-        # Clear the cache and allow retry timers to complete
         api.list_families.cache_clear()
-        # Force cleanup of any pending tasks/timers
         await asyncio.sleep(0.1)
 
 
@@ -838,11 +846,9 @@ async def test_shared_devices_caching_complete(
     api: AuxCloudAPI, mock_session: MagicMock, mock_response: MagicMock
 ) -> None:
     """Test complete shared devices caching behavior."""
-    # Clear any existing cache
     api._has_shared_devices.cache_clear()
     api.list_families.cache_clear()
 
-    # Mock regular devices response
     regular_response = {
         "status": 0,
         "data": {
@@ -862,7 +868,6 @@ async def test_shared_devices_caching_complete(
         },
     }
 
-    # Mock shared devices response
     shared_response = {
         "status": 0,
         "data": {
@@ -884,22 +889,16 @@ async def test_shared_devices_caching_complete(
         },
     }
 
-    # Set up mock responses sequence
     mock_response.text = AsyncMock(
         side_effect=[
-            json.dumps(regular_response),  # First call for regular devices
-            json.dumps(shared_response),  # Second call for shared devices
-            json.dumps(
-                regular_response
-            ),  # Third call for regular devices (second iteration)
-            json.dumps(
-                shared_response
-            ),  # Fourth call for shared devices (second iteration)
+            json.dumps(regular_response),
+            json.dumps(shared_response),
+            json.dumps(regular_response),
+            json.dumps(shared_response),
         ]
     )
     mock_session.post.return_value = mock_response
 
-    # Mock device state and params responses
     state_response = {
         "status": 0,
         "data": [{"state": "on"}],
@@ -915,7 +914,6 @@ async def test_shared_devices_caching_complete(
             AsyncMock(side_effect=[params_response, ambient_response] * 4),
         ),
     ):
-        # First call - should get both regular and shared devices
         regular_devices = await api.list_devices("family1", shared=False)
         assert len(regular_devices) == 1
         assert regular_devices[0]["endpointId"] == "device1"
@@ -924,17 +922,13 @@ async def test_shared_devices_caching_complete(
         assert len(shared_devices) == 1
         assert shared_devices[0]["endpointId"] == "shared1"
 
-        # Second call - should update cache
-        # Verify that devices are properly updated in internal cache
         assert "family1" in api.data
         cached_devices = api.data["family1"]["devices"]
-        # Both regular and shared devices
         assert len(cached_devices) == TEST_MIN_DEVICE_COUNT
         device_ids = {dev["endpointId"] for dev in cached_devices}
         assert "device1" in device_ids
         assert "shared1" in device_ids
 
-        # Verify device attributes are properly set
         for device in cached_devices:
             assert "state" in device
             assert "params" in device
@@ -948,11 +942,9 @@ async def test_shared_devices_caching_no_shared_devices(
 ) -> None:
     """Test shared devices caching behavior when no shared devices exist."""
     try:
-        # Clear any existing cache
         api._has_shared_devices.cache_clear()
         api.list_families.cache_clear()
 
-        # Mock regular devices response - Used in mock_response setup
         regular_response = {
             "status": 0,
             "data": {
@@ -972,37 +964,19 @@ async def test_shared_devices_caching_no_shared_devices(
             },
         }
 
-        # Mock the list_devices method directly to ensure proper behavior
         original_list_devices = api.list_devices
 
         async def mock_list_devices(
             family_id: str, *, shared: bool = False
         ) -> list[dict[str, Any]]:
-            """
-            Mock the list_devices method.
-
-            Args:
-                family_id: The ID of the family to list devices for
-                shared: Whether to return shared devices
-
-            Returns:
-                List of device dictionaries
-
-            """
             if shared:
-                # For shared devices, always return empty list
                 return []
-            # For regular devices, call the original implementation
-            # but we'll still mock the API responses
             return await original_list_devices(family_id, shared=False)
 
-        # Apply the mock to list_devices
         with patch.object(api, "list_devices", side_effect=mock_list_devices):
-            # Set up mock responses sequence for the regular devices call
             mock_response.text = AsyncMock(return_value=json.dumps(regular_response))
             mock_session.post.return_value = mock_response
 
-            # Mock device state and params responses
             state_response = {
                 "status": 0,
                 "data": [{"state": "on"}],
@@ -1020,44 +994,33 @@ async def test_shared_devices_caching_no_shared_devices(
                     AsyncMock(side_effect=[params_response, ambient_response] * 2),
                 ),
             ):
-                # Get regular devices
                 regular_devices = await api.list_devices("family1", shared=False)
                 assert len(regular_devices) == 1
                 assert regular_devices[0]["endpointId"] == "device1"
 
-                # Check shared devices - this will use our mock
                 shared_devices = await api.list_devices("family1", shared=True)
-                assert len(shared_devices) == 0  # Should be empty
+                assert len(shared_devices) == 0
 
-                # Verify internal cache state
                 assert "family1" in api.data
                 cached_devices = api.data["family1"]["devices"]
-                assert len(cached_devices) == 1  # Only regular device
+                assert len(cached_devices) == 1
                 assert cached_devices[0]["endpointId"] == "device1"
 
-                # Verify device attributes are properly set for regular device
                 device = cached_devices[0]
                 assert "state" in device
                 assert "params" in device
                 assert device["params"]["temp"] == TEST_TEMPERATURE
                 assert device["params"]["envtemp"] == TEST_AMBIENT_TEMP
 
-                # Verify shared devices cache works
                 has_shared = await api._has_shared_devices("family1")
-                assert not has_shared  # Should return False
+                assert not has_shared
 
-                # Call again to verify cache hit
                 second_check = await api._has_shared_devices("family1")
-                assert not second_check  # Should still return False
-
-                # We're directly mocking list_devices, so call count verification
-                # needs to be adjusted or removed
+                assert not second_check
 
     finally:
-        # Clean up caches and their timers
         api._has_shared_devices.cache_clear()
         api.list_families.cache_clear()
-        # Allow any pending tasks to complete
         await asyncio.sleep(0)
 
 
@@ -1067,33 +1030,18 @@ async def test_shared_devices_caching_no_shared_devices_call_count(
 ) -> None:
     """Test shared devices caching behavior when no shared devices exist."""
     try:
-        # Clear any existing cache
         api._has_shared_devices.cache_clear()
         api.list_families.cache_clear()
 
-        # Use a mock that we can track calls on
         list_devices_mock = AsyncMock()
 
-        # Set up the mock to return different results based on the shared parameter
         async def side_effect(
             family_id: str,  # noqa: ARG001
             *,
             shared: bool = False,
         ) -> list[dict[str, Any]]:
-            """
-            Mock side effect that returns devices based on parameters.
-
-            Args:
-                family_id: The ID of the family to list devices for
-                shared: Whether to return shared devices
-
-            Returns:
-                List of device dictionaries
-
-            """
             if shared:
-                return []  # Empty list for shared devices
-            # For regular devices, return a device
+                return []
             device = {
                 "endpointId": "device1",
                 "devSession": "session1",
@@ -1111,55 +1059,78 @@ async def test_shared_devices_caching_no_shared_devices_call_count(
 
         list_devices_mock.side_effect = side_effect
 
-        # Apply the mock to list_devices
         with patch.object(api, "list_devices", list_devices_mock):
-            # Get regular devices
             regular_devices = await api.list_devices("family1", shared=False)
             assert len(regular_devices) == 1
             assert regular_devices[0]["endpointId"] == "device1"
 
-            # Check shared devices
             shared_devices = await api.list_devices("family1", shared=True)
-            assert len(shared_devices) == 0  # Should be empty
+            assert len(shared_devices) == 0
 
-            # Verify internal cache state
             api.data = {"family1": {"devices": regular_devices}}
 
-            # Verify device attributes are properly set for regular device
             device = regular_devices[0]
             assert "state" in device
             assert "params" in device
             assert device["params"]["temp"] == TEST_TEMPERATURE
             assert device["params"]["envtemp"] == TEST_AMBIENT_TEMP
 
-            # Verify shared devices cache works
             has_shared = await api._has_shared_devices("family1")
-            assert not has_shared  # Should return False
+            assert not has_shared
 
-            # Call again to verify cache hit
             second_check = await api._has_shared_devices("family1")
-            assert not second_check  # Should still return False
+            assert not second_check
 
-            # Verify call counts
             assert list_devices_mock.call_count == TEST_SHARED_DEVICES_CALL_COUNT
 
-            # Get the actual calls made to list_devices
             calls = list_devices_mock.call_args_list
 
-            # Verify the first two calls (should be for regular and shared devices)
             first_call = calls[0]
-            # First positional arg should be family_id
             assert first_call.args[0] == "family1"
             assert first_call.kwargs.get("shared") is False
 
             second_call = calls[1]
-            # First positional arg should be family_id
             assert second_call.args[0] == "family1"
             assert second_call.kwargs.get("shared") is True
 
     finally:
-        # Clean up caches and their timers
         api._has_shared_devices.cache_clear()
         api.list_families.cache_clear()
-        # Allow any pending tasks to complete
         await asyncio.sleep(0)
+
+
+@pytest.mark.asyncio
+async def test_get_shared_connector() -> None:
+    """Test get_shared_connector creates and reuses connector."""
+    AuxCloudAPI._shared_connector = None
+
+    connector1 = await AuxCloudAPI.get_shared_connector()
+    assert isinstance(connector1, aiohttp.TCPConnector)
+    assert connector1.limit == CONNECTION_POOL_LIMIT
+    assert not connector1.closed
+
+    connector2 = await AuxCloudAPI.get_shared_connector()
+    assert connector2 is connector1
+
+    await connector1.close()
+    AuxCloudAPI._shared_connector = None
+
+
+@pytest.mark.asyncio
+async def test_get_shared_session() -> None:
+    """Test get_shared_session creates and reuses session."""
+    AuxCloudAPI._shared_session = None
+    AuxCloudAPI._shared_connector = None
+
+    session1 = await AuxCloudAPI.get_shared_session()
+    assert isinstance(session1, aiohttp.ClientSession)
+    assert not session1.closed
+
+    session2 = await AuxCloudAPI.get_shared_session()
+    assert session2 is session1
+
+    await session1.close()
+    if session1.connector:
+        await session1.connector.close()
+    AuxCloudAPI._shared_session = None
+    AuxCloudAPI._shared_connector = None
