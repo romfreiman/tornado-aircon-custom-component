@@ -306,18 +306,6 @@ class TornadoClimateEntity(ClimateEntity):
         """Set device parameters and handle any errors."""
         try:
             await self._client.set_device_params(self._device, params)
-            _LOGGER.info(
-                "Connection pool stat - Size: %s, Acquired: %s, Active connections: %s",
-                self._client.session.connector.size
-                if self._client.session and self._client.session.connector
-                else "N/A",
-                self._client.session.connector.acquired
-                if self._client.session and self._client.session.connector
-                else "N/A",
-                len(self._client.session.connector._acquired)
-                if self._client.session and self._client.session.connector
-                else "N/A",
-            )
         except Exception:
             _LOGGER.exception(
                 "Error setting parameters for %s",
@@ -379,18 +367,6 @@ class TornadoClimateEntity(ClimateEntity):
         _LOGGER.info("Turning on %s", self._device.get("endpointId", "Unknown"))
         try:
             await self._client.set_device_params(self._device, {"pwr": 1})
-            _LOGGER.debug(
-                "Connection pool stats- Size: %s, Acquired: %s, Active connections: %s",
-                self._client.session.connector.size
-                if self._client.session and self._client.session.connector
-                else "N/A",
-                self._client.session.connector.acquired
-                if self._client.session and self._client.session.connector
-                else "N/A",
-                len(self._client.session.connector._acquired)
-                if self._client.session and self._client.session.connector
-                else "N/A",
-            )
         except Exception:
             _LOGGER.exception(
                 "Error turning on %s", self._device.get("endpointId", "Unknown")
@@ -401,18 +377,6 @@ class TornadoClimateEntity(ClimateEntity):
         _LOGGER.info("Turning off %s", self._device.get("endpointId", "Unknown"))
         try:
             await self._client.set_device_params(self._device, {"pwr": 0})
-            _LOGGER.debug(
-                "Connection pool stats- Size: %s, Acquired: %s, Active connections: %s",
-                self._client.session.connector.size
-                if self._client.session and self._client.session.connector
-                else "N/A",
-                self._client.session.connector.acquired
-                if self._client.session and self._client.session.connector
-                else "N/A",
-                len(self._client.session.connector._acquired)
-                if self._client.session and self._client.session.connector
-                else "N/A",
-            )
         except Exception:
             _LOGGER.exception(
                 "Error turning off %s", self._device.get("endpointId", "Unknown")
