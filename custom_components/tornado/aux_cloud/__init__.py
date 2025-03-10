@@ -123,7 +123,16 @@ class AuxCloudAPI:
                     ttl_dns_cache=300,  # Cache DNS results for 5 minutes
                     use_dns_cache=True,
                     family=socket.AF_INET,
-                    keepalive_timeout=30,
+                    keepalive_timeout=120,
+                    force_close=False,
+                )
+                _LOGGER.info("Created new connector: %s", id(cls._shared_connector))
+
+            if cls._shared_connector and hasattr(cls._shared_connector, "_conns"):
+                _LOGGER.info(
+                    "Connector status - Active connections: %d, Acquired: %d",
+                    len(cls._shared_connector._conns),
+                    len(cls._shared_connector._acquired),
                 )
             return cls._shared_connector
 
@@ -353,12 +362,6 @@ class AuxCloudAPI:
     async def get_devices(self) -> list[dict[str, Any]]:
         """Get all devices across all families."""
         _LOGGER.debug("Fetching all devices")
-        if self.session and hasattr(self.session.connector, "size"):
-            _LOGGER.info(
-                "Connection pool stats - Size: %s, Acquired: %s",
-                self.session.connector.size,
-                self.session.connector.acquired,
-            )
         all_devices = []
         try:
             # First get all families
