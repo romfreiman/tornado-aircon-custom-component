@@ -9,7 +9,7 @@ aiohttp-fast-zlib==0.2.0
 async-lru==2.0.4
 pytest-aiohttp==1.0.5
 pytest-asyncio==0.24.0
-dataclasses-json==0.5.14
+dataclasses-json==0.6.7
 fastjsonschema==2.21.1
 json-schema-for-humans==1.0.2
 jsonlines==3.1.0
