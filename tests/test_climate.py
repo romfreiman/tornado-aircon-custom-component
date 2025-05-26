@@ -32,7 +32,7 @@ MOCK_DEVICE = {
     "friendlyName": "Test AC",
     "params": {
         "pwr": 1,
-        "ac_mode": 2,  # COOL mode
+        "ac_mode": 0,  # COOL mode (updated mapping)
         "ac_mark": 1,  # Low fan
         "temp": 250,  # 25.0°C
         "envtemp": 270,  # 27.0°C
@@ -317,11 +317,11 @@ async def test_hvac_action_mapping(
         # Trigger a coordinator refresh which will fetch the updated data
         await coordinator.async_refresh()
 
-    # Test cooling action (ac_mode:2 -> COOLING)
+    # Test cooling action (ac_mode:0 -> COOLING)
     await mock_and_refresh(
         {
             "pwr": 1,
-            "ac_mode": 2,
+            "ac_mode": 0,  # COOL mode (updated mapping)
             "temp": 250,  # 25.0°C target temperature
             "envtemp": 270,  # 27.0°C current temperature (needs cooling)
         }
@@ -332,18 +332,18 @@ async def test_hvac_action_mapping(
     await mock_and_refresh(
         {
             "pwr": 1,
-            "ac_mode": 1,  # heating mode
+            "ac_mode": 1,  # HEAT mode
             "temp": 280,  # 28.0°C target temperature
             "envtemp": 260,  # 26.0°C current temperature (needs heating)
         }
     )
     assert entity.hvac_action == HVACAction.HEATING
 
-    # Test drying action (ac_mode:4 -> DRYING)
+    # Test drying action (ac_mode:2 -> DRYING)
     await mock_and_refresh(
         {
             "pwr": 1,
-            "ac_mode": 4,
+            "ac_mode": 2,  # DRY mode (updated mapping)
         }
     )
     assert entity.hvac_action == HVACAction.DRYING
@@ -352,10 +352,19 @@ async def test_hvac_action_mapping(
     await mock_and_refresh(
         {
             "pwr": 1,
-            "ac_mode": 3,
+            "ac_mode": 3,  # FAN_ONLY mode
         }
     )
     assert entity.hvac_action == HVACAction.FAN
+
+    # Test auto action (ac_mode:4 -> AUTO/IDLE)
+    await mock_and_refresh(
+        {
+            "pwr": 1,
+            "ac_mode": 4,  # AUTO mode (updated mapping)
+        }
+    )
+    assert entity.hvac_action == HVACAction.IDLE
 
     # Test off action (pwr:0 -> OFF)
     await mock_and_refresh(

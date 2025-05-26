@@ -29,15 +29,16 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-# Map Tornado modes to Home Assistant modes
+# Map Tornado modes to Home Assistant modes (updated to match remote)
 HVAC_MODE_MAP = {
-    0: HVACMode.AUTO,
+    0: HVACMode.COOL,
     1: HVACMode.HEAT,
-    2: HVACMode.COOL,
+    2: HVACMode.DRY,
     3: HVACMode.FAN_ONLY,
-    4: HVACMode.DRY,
+    4: HVACMode.AUTO,
 }
 
+# Reverse mapping for setting device params
 HVAC_MODE_MAP_REVERSE = {v: k for k, v in HVAC_MODE_MAP.items()}
 
 # Map Tornado fan modes to Home Assistant fan modes
