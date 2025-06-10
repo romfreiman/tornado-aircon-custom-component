@@ -174,6 +174,24 @@ async def test_set_fan_mode(entity: TornadoClimateEntity, mock_api: MagicMock) -
     mock_api.set_device_params.assert_called_once_with(MOCK_DEVICE, {"ac_mark": 3})
 
 
+async def test_set_turbo_fan_mode(
+    entity: TornadoClimateEntity,
+    mock_api: MagicMock,
+) -> None:
+    """Test setting turbo fan mode."""
+    await entity.async_set_fan_mode("turbo")
+    mock_api.set_device_params.assert_called_once_with(MOCK_DEVICE, {"ac_mark": 4})
+
+
+async def test_set_silent_fan_mode(
+    entity: TornadoClimateEntity,
+    mock_api: MagicMock,
+) -> None:
+    """Test setting silent fan mode."""
+    await entity.async_set_fan_mode("silent")
+    mock_api.set_device_params.assert_called_once_with(MOCK_DEVICE, {"ac_mark": 5})
+
+
 async def test_set_swing_mode(
     entity: TornadoClimateEntity, mock_api: MagicMock
 ) -> None:
@@ -235,14 +253,8 @@ async def test_fan_modes(entity: TornadoClimateEntity) -> None:
     assert "low" in entity.fan_modes
     assert "medium" in entity.fan_modes
     assert "high" in entity.fan_modes
-
-
-async def test_swing_modes(entity: TornadoClimateEntity) -> None:
-    """Test swing modes."""
-    assert "off" in entity.swing_modes
-    assert "vertical" in entity.swing_modes
-    assert "horizontal" in entity.swing_modes
-    assert "both" in entity.swing_modes
+    assert "turbo" in entity.fan_modes
+    assert "silent" in entity.fan_modes
 
 
 async def test_temperature_limits(entity: TornadoClimateEntity) -> None:

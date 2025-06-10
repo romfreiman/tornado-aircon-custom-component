@@ -47,6 +47,8 @@ FAN_MODE_MAP = {
     1: "low",
     2: "medium",
     3: "high",
+    4: "turbo",
+    5: "silent",
 }
 
 FAN_MODE_MAP_REVERSE = {v: k for k, v in FAN_MODE_MAP.items()}
@@ -58,7 +60,7 @@ SWING_MODES = ["off", "vertical", "horizontal", "both"]
 PARAMETER_VALIDATION = {
     "ac_vdir": {"type": int, "range": (0, 1), "required": False},
     "ac_hdir": {"type": int, "range": (0, 1), "required": False},
-    "ac_mark": {"type": int, "range": (0, 4), "required": True},  # Fan modes
+    "ac_mark": {"type": int, "range": (0, 5), "required": True},  # Fan modes
     "ac_mode": {"type": int, "range": (0, 4), "required": True},
     "ac_slp": {"type": int, "range": (0, 1), "required": True},
     "pwr": {"type": int, "range": (0, 1), "required": True},
