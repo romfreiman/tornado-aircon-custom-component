@@ -174,13 +174,19 @@ async def test_set_fan_mode(entity: TornadoClimateEntity, mock_api: MagicMock) -
     mock_api.set_device_params.assert_called_once_with(MOCK_DEVICE, {"ac_mark": 3})
 
 
-async def test_set_turbo_fan_mode(entity: TornadoClimateEntity, mock_api: MagicMock) -> None:
+async def test_set_turbo_fan_mode(
+    entity: TornadoClimateEntity,
+    mock_api: MagicMock,
+) -> None:
     """Test setting turbo fan mode."""
     await entity.async_set_fan_mode("turbo")
     mock_api.set_device_params.assert_called_once_with(MOCK_DEVICE, {"ac_mark": 4})
 
 
-async def test_set_silent_fan_mode(entity: TornadoClimateEntity, mock_api: MagicMock) -> None:
+async def test_set_silent_fan_mode(
+    entity: TornadoClimateEntity,
+    mock_api: MagicMock,
+) -> None:
     """Test setting silent fan mode."""
     await entity.async_set_fan_mode("silent")
     mock_api.set_device_params.assert_called_once_with(MOCK_DEVICE, {"ac_mark": 5})
