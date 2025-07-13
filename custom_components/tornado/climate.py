@@ -43,12 +43,12 @@ HVAC_MODE_MAP_REVERSE = {v: k for k, v in HVAC_MODE_MAP.items()}
 
 # Map Tornado fan modes to Home Assistant fan modes
 FAN_MODE_MAP = {
-    0: "Auto",
-    1: "Low",
-    2: "Medium",
-    3: "High",
-    4: "Turbo",
-    5: "Silent",
+    0: "auto",
+    1: "low",
+    2: "medium",
+    3: "high",
+    4: "turbo",
+    5: "silent",
 }
 
 FAN_MODE_MAP_REVERSE = {v: k for k, v in FAN_MODE_MAP.items()}

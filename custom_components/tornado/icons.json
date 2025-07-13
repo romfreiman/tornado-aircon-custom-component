@@ -2,29 +2,11 @@
   "entity": {
     "climate": {
       "tornado": {
-        "default": "mdi:air-conditioner",
         "state_attributes": {
           "fan_mode": {
-            "default": "mdi:fan",
             "state": {
-              "Auto": "mdi:fan-auto",
-              "Low": "mdi:speedometer-slow",
-              "Medium": "mdi:speedometer-medium",
-              "High": "mdi:speedometer",
-              "Turbo": "mdi:rocket-launch",
-              "Silent": "mdi:fan-off",
-              "Off": "mdi:fan-off"
-            }
-          },
-  
-          "swing_mode": {
-            "default": "mdi:circle-medium",
-            "state": {
-              "both": "mdi:arrow-all",
-              "horizontal": "mdi:arrow-left-right",
-              "off": "mdi:arrow-oscillating-off",
-              "on": "mdi:arrow-oscillating",
-              "vertical": "mdi:arrow-up-down"
+              "turbo": "mdi:rocket-launch",
+              "silent": "mdi:fan-off"
             }
           }
         }
