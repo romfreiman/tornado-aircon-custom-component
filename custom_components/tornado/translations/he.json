@@ -1,0 +1,38 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "מזגן טורנדו",
+        "description": "הגדרת מזגן טורנדו",
+        "data": {
+          "email": "אימייל",
+          "password": "סיסמה",
+          "region": "אזור"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "נכשל בהתחברות",
+      "invalid_auth": "אימות לא תקין",
+      "unknown": "אירעה שגיאה לא צפויה"
+    },
+    "abort": {
+      "already_configured": "המכשיר כבר מוגדר"
+    }
+  },
+  "entity": {
+    "climate": {
+      "tornado": {
+        "name": "מזגן טורנדו",
+        "state_attributes": {
+          "fan_mode": {
+            "state": {
+              "turbo": "טורבו",
+              "silent": "שקט"
+            }
+          }
+        }
+      }
+    }
+  }
+}

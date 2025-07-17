@@ -1,0 +1,38 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Кондиционер Tornado",
+        "description": "Настройка кондиционера Tornado",
+        "data": {
+          "email": "Электронная почта",
+          "password": "Пароль",
+          "region": "Регион"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Не удалось подключиться",
+      "invalid_auth": "Неверная аутентификация",
+      "unknown": "Произошла неожиданная ошибка"
+    },
+    "abort": {
+      "already_configured": "Устройство уже настроено"
+    }
+  },
+  "entity": {
+    "climate": {
+      "tornado": {
+        "name": "Кондиционер Tornado",
+        "state_attributes": {
+          "fan_mode": {
+            "state": {
+              "turbo": "Турбо",
+              "silent": "Тихий"
+            }
+          }
+        }
+      }
+    }
+  }
+}
