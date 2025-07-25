@@ -1,9 +1,7 @@
 """Platform for Tornado AC climate integration."""
 
 from __future__ import annotations
-
 import logging
-from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.climate import (
@@ -21,6 +19,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .aux_cloud import AuxCloudAPI
+from . import AuxCloudDataUpdateCoordinator
 from .const import DOMAIN
 
 if TYPE_CHECKING:
@@ -82,20 +81,14 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Tornado climate platform."""
-    # Get the client from the domain data
+    # Get the coordinator from the domain data (created in __init__.py)
     entry_data = hass.data[DOMAIN][config_entry.entry_id]
-    client = entry_data["client"]
-
-    # Ensure client is logged in before creating coordinator
-    if not hasattr(client, "loginsession") or not client.loginsession:
-        _LOGGER.info("Initial login for AuxCloud client")
-        await client.login()
-
-    coordinator = AuxCloudDataUpdateCoordinator(hass, client)
-    await coordinator.async_refresh()
+    coordinator = entry_data["coordinator"]
+    
+    _LOGGER.info("Climate platform using coordinator from __init__.py")
 
     try:
-        devices = await client.get_devices()
+        devices = await coordinator.api.get_devices()
         entities = []
 
         for device in devices:
@@ -116,36 +109,6 @@ async def async_setup_entry(
 
     except Exception:
         _LOGGER.exception("Error setting up Tornado climate platform")
-
-
-class AuxCloudDataUpdateCoordinator(DataUpdateCoordinator):
-    """Class to manage fetching AuxCloud data."""
-
-    def __init__(self, hass: HomeAssistant, api: AuxCloudAPI) -> None:
-        """Initialize the coordinator."""
-        self.api = api
-        super().__init__(
-            hass,
-            _LOGGER,
-            name="AuxCloud",
-            update_interval=timedelta(minutes=1),
-        )
-
-    async def _async_update_data(self) -> dict:
-        """Fetch data from AuxCloud."""
-        try:
-            # First check if we need to re-authenticate
-            if not hasattr(self.api, "loginsession") or not self.api.loginsession:
-                _LOGGER.info("No valid login session, attempting to login")
-                await self.api.login()
-
-            devices = await self.api.get_devices()
-            _LOGGER.debug("Coordinator fetched data: %s", devices)
-            return {device["endpointId"]: device for device in devices}
-        except Exception as err:
-            _LOGGER.exception("Error fetching data")
-            error_msg = f"Error fetching data: {err}"
-            raise UpdateFailed(error_msg) from err
 
 
 class TornadoClimateEntity(ClimateEntity):

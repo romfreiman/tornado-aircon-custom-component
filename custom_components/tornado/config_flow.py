@@ -43,6 +43,7 @@ class TornadoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     region=user_input[CONF_REGION],
                 )
                 await client.login()
+                await client.initialize_websocket()
 
                 await self.async_set_unique_id(user_input[CONF_EMAIL])
                 self._abort_if_unique_id_configured()
@@ -97,7 +98,8 @@ class TornadoOptionsFlow(config_entries.OptionsFlow):
                     region=user_input[CONF_REGION],
                 )
                 await client.login()
-
+                await client.initialize_websocket()
+                
                 return self.async_create_entry(title="", data=user_input)
             except Exception:
                 _LOGGER.exception("Failed to connect to Tornado AC")

@@ -33,6 +33,156 @@
           }
         }
       }
+    },
+    "sensor": {
+      "tornado_off_timer_status": {
+        "name": "Off Timer Status",
+        "state_attributes": {
+          "timer_active": "Off Timer Active",
+          "timer_duration": "Off Timer Duration",
+          "timer_start_time": "Off Timer Start Time",
+          "timer_end_time": "Off Timer End Time",
+          "target_action": "Target Action",
+          "sleep_mode_active": "Sleep Mode Active"
+        }
+      }
+    },
+    "number": {
+      "tornado_timer_duration": {
+        "name": "Timer Duration"
+      },
+      "tornado_cooldown_duration": {
+        "name": "CoolDown Duration",
+        "state_attributes": {
+          "unit_of_measurement": "minutes"
+        }
+      }
+    },
+    "select": {
+      "tornado_cooldown_starting_fan": {
+        "name": "CoolDown Starting Fan",
+        "state": {
+          "auto": "Auto",
+          "low": "Low",
+          "medium": "Medium",
+          "high": "High",
+          "turbo": "Turbo",
+          "silent": "Silent"
+        }
+      },
+      "tornado_cooldown_target_fan": {
+        "name": "CoolDown Target Fan",
+        "state": {
+          "auto": "Auto",
+          "low": "Low",
+          "medium": "Medium",
+          "high": "High",
+          "turbo": "Turbo",
+          "silent": "Silent"
+        }
+      },
+      "tornado_off_timer_duration": {
+        "name": "Off Timer Duration",
+        "state": {
+          "10m": "10 minutes",
+          "30m": "30 minutes",
+          "1h": "1 hour",
+          "2h": "2 hours",
+          "3h": "3 hours",
+          "4h": "4 hours",
+          "5h": "5 hours",
+          "6h": "6 hours",
+          "7h": "7 hours",
+          "8h": "8 hours",
+          "9h": "9 hours",
+          "10h": "10 hours",
+          "11h": "11 hours",
+          "12h": "12 hours"
+        }
+      },
+      "tornado_cooldown_duration": {
+        "name": "CoolDown Duration",
+        "state": {
+          "1min": "1 minute",
+          "3min": "3 minutes",
+          "5min": "5 minutes",
+          "10min": "10 minutes",
+          "15min": "15 minutes",
+          "30min": "30 minutes"
+        }
+      }
+    },
+    "switch": {
+      "tornado_sleep_mode": {
+        "name": "Sleep Mode"
+      },
+      "tornado_eco_mode": {
+        "name": "Eco Mode"
+      },
+      "tornado_cooldown": {
+        "name": "CoolDown",
+        "state_attributes": {
+          "cooldown_active": "CoolDown Active",
+          "cooldown_duration": "CoolDown Duration",
+          "starting_fan_mode": "Starting Fan Mode",
+          "target_fan_mode": "Target Fan Mode",
+          "cooldown_start_time": "CoolDown Start Time",
+          "remaining_seconds": "Remaining Seconds",
+          "remaining_minutes": "Remaining Minutes"
+        }
+      },
+      "tornado_off_timer_control": {
+        "name": "Off Timer",
+        "state_attributes": {
+          "timer_active": "Off Timer Active",
+          "timer_duration": "Off Timer Duration",
+          "timer_end_time": "Off Timer End Time",
+          "remaining_seconds": "Remaining Seconds",
+          "remaining_minutes": "Remaining Minutes"
+        }
+      }
+    }
+  },
+  "services": {
+    "set_timer": {
+      "name": "Set Timer",
+      "description": "Set a timer for the Tornado AC unit",
+      "fields": {
+        "duration": {
+          "name": "Duration",
+          "description": "Timer duration in minutes (0 to cancel)"
+        },
+        "action": {
+          "name": "Action",
+          "description": "What to do when timer expires"
+        }
+      }
+    },
+    "cancel_timer": {
+      "name": "Cancel Timer",
+      "description": "Cancel the active timer for the Tornado AC unit"
+    },
+    "start_cooldown": {
+      "name": "Start CoolDown",
+      "description": "Start CoolDown mode for the Tornado AC unit",
+      "fields": {
+        "duration": {
+          "name": "Duration",
+          "description": "CoolDown duration in minutes"
+        },
+        "target_fan_mode": {
+          "name": "Target Fan Mode",
+          "description": "Fan mode to switch to after CoolDown completes"
+        },
+        "starting_fan_mode": {
+          "name": "Starting Fan Mode", 
+          "description": "Fan mode to use during the CoolDown period"
+        }
+      }
+    },
+    "cancel_cooldown": {
+      "name": "Cancel CoolDown",
+      "description": "Cancel the active CoolDown for the Tornado AC unit"
     }
   }
 }

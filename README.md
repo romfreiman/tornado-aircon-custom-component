@@ -36,13 +36,53 @@ To set up the Tornado Air Conditioner integration in Home Assistant:
 
 ## Features
 
-- Control power, mode, temperature, and fan speed of your Tornado Aircon units.
-- Monitor current temperature, humidity, and operational status.
-- Automate your air conditioning based on Home Assistant automations.
+- **Climate Control**: Full control of power, mode, temperature, and fan speed
+- **Real-time Monitoring**: Current temperature, humidity, and operational status
+- **Advanced Timer System**: Set timers with multiple actions (turn off, sleep mode)
+- **🆕 CoolDown Mode**: Instant cooling relief with automatic transition to quiet operation
+- **Sleep Mode**: Direct control of quiet operation mode
+- **Smart Automations**: Perfect integration with Home Assistant automations and scripts
+
+### CoolDown Feature
+The new CoolDown feature provides instant cooling relief:
+- **One-button activation** - Even if AC is off, starts cooling immediately
+- **Maximum cooling power** - Uses Turbo fan speed in Cool mode
+- **Configurable duration** - 1-30 minutes (default: 5 minutes)
+- **Smart transition** - Automatically switches to your preferred fan mode (default: Silent)
+- **Safety mechanisms** - Cancels if AC is turned off or settings changed manually
+
+See [COOLDOWN_USAGE.md](COOLDOWN_USAGE.md) for detailed usage instructions.
+
+### Timer System
+Advanced software-based timer functionality:
+- **Flexible durations** - Up to 8 hours
+- **Multiple actions** - Turn off or enable sleep mode
+- **Smart cancellation** - Automatically cancels when AC is turned off
+
+See [TIMER_USAGE.md](TIMER_USAGE.md) for detailed usage instructions.
 
 ## Usage
 
-Once configured, you will see new entities in Home Assistant for each Tornado Aircon unit. You can use these entities in automations, scripts, and dashboards.
+Once configured, you will see new entities in Home Assistant for each Tornado Aircon unit:
+
+### Core Entities
+- **Climate Entity**: `climate.tornado_[device_id]` - Main AC control
+- **Timer Sensor**: `sensor.tornado_[device_id]_timer` - Timer status and remaining time
+- **Sleep Mode Switch**: `switch.tornado_[device_id]_sleep_mode` - Direct sleep mode control
+- **🆕 CoolDown Switch**: `switch.tornado_[device_id]_cooldown` - One-button cooling relief
+
+### Configuration Entities  
+- **Timer Duration**: `number.tornado_[device_id]_timer_duration` - Set timer duration (0-480 min)
+- **🆕 CoolDown Duration**: `number.tornado_[device_id]_cooldown_duration` - Set cooldown duration (1-30 min)
+- **🆕 CoolDown Target Fan**: `number.tornado_[device_id]_cooldown_target_fan` - Set fan mode after cooldown
+
+### Services
+- `tornado.set_timer` - Set timer with custom duration and action
+- `tornado.cancel_timer` - Cancel active timer
+- **🆕** `tornado.start_cooldown` - Start cooldown with custom settings
+- **🆕** `tornado.cancel_cooldown` - Cancel active cooldown
+
+All entities can be used in automations, scripts, and dashboards for complete smart home integration.
 
 ## Troubleshooting
 

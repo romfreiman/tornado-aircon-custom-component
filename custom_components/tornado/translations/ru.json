@@ -33,6 +33,156 @@
           }
         }
       }
+    },
+    "sensor": {
+      "tornado_off_timer_status": {
+        "name": "Статус таймера выключения",
+        "state_attributes": {
+          "timer_active": "Таймер выключения активен",
+          "timer_duration": "Длительность таймера выключения",
+          "timer_start_time": "Время запуска таймера выключения",
+          "timer_end_time": "Время окончания таймера выключения",
+          "target_action": "Целевое действие",
+          "sleep_mode_active": "Спящий режим активен"
+        }
+      }
+    },
+    "number": {
+      "tornado_timer_duration": {
+        "name": "Длительность таймера"
+      },
+      "tornado_cooldown_duration": {
+        "name": "Длительность быстрого охлаждения",
+        "state_attributes": {
+          "unit_of_measurement": "минуты"
+        }
+      }
+    },
+    "select": {
+      "tornado_cooldown_starting_fan": {
+        "name": "Начальный вентилятор быстрого охлаждения",
+        "state": {
+          "auto": "Авто",
+          "low": "Низкий",
+          "medium": "Средний",
+          "high": "Высокий",
+          "turbo": "Турбо",
+          "silent": "Тихий"
+        }
+      },
+      "tornado_cooldown_target_fan": {
+        "name": "Целевой вентилятор быстрого охлаждения",
+        "state": {
+          "auto": "Авто",
+          "low": "Низкий",
+          "medium": "Средний",
+          "high": "Высокий",
+          "turbo": "Турбо",
+          "silent": "Тихий"
+        }
+      },
+      "tornado_off_timer_duration": {
+        "name": "Длительность таймера выключения",
+        "state": {
+          "10m": "10 минут",
+          "30m": "30 минут",
+          "1h": "1 час",
+          "2h": "2 часа",
+          "3h": "3 часа",
+          "4h": "4 часа",
+          "5h": "5 часов",
+          "6h": "6 часов",
+          "7h": "7 часов",
+          "8h": "8 часов",
+          "9h": "9 часов",
+          "10h": "10 часов",
+          "11h": "11 часов",
+          "12h": "12 часов"
+        }
+      },
+      "tornado_cooldown_duration": {
+        "name": "Длительность быстрого охлаждения",
+        "state": {
+          "1min": "1 минута",
+          "3min": "3 минуты",
+          "5min": "5 минут",
+          "10min": "10 минут",
+          "15min": "15 минут",
+          "30min": "30 минут"
+        }
+      }
+    },
+    "switch": {
+      "tornado_sleep_mode": {
+        "name": "Спящий режим"
+      },
+      "tornado_eco_mode": {
+        "name": "Эко режим"
+      },
+      "tornado_cooldown": {
+        "name": "Быстрое охлаждение",
+        "state_attributes": {
+          "cooldown_active": "Быстрое охлаждение активно",
+          "cooldown_duration": "Длительность быстрого охлаждения",
+          "starting_fan_mode": "Начальный режим вентилятора",
+          "target_fan_mode": "Целевой режим вентилятора",
+          "cooldown_start_time": "Время запуска быстрого охлаждения",
+          "remaining_seconds": "Оставшиеся секунды",
+          "remaining_minutes": "Оставшиеся минуты"
+        }
+      },
+      "tornado_off_timer_control": {
+        "name": "Таймер выключения",
+        "state_attributes": {
+          "timer_active": "Таймер выключения активен",
+          "timer_duration": "Длительность таймера выключения",
+          "timer_end_time": "Время окончания таймера выключения",
+          "remaining_seconds": "Оставшиеся секунды",
+          "remaining_minutes": "Оставшиеся минуты"
+        }
+      }
+    }
+  },
+  "services": {
+    "set_timer": {
+      "name": "Установить таймер",
+      "description": "Установить таймер для кондиционера Tornado",
+      "fields": {
+        "duration": {
+          "name": "Длительность",
+          "description": "Длительность таймера в минутах (0 для отмены)"
+        },
+        "action": {
+          "name": "Действие",
+          "description": "Что делать по истечении таймера"
+        }
+      }
+    },
+    "cancel_timer": {
+      "name": "Отменить таймер",
+      "description": "Отменить активный таймер для кондиционера Tornado"
+    },
+    "start_cooldown": {
+      "name": "Запустить быстрое охлаждение",
+      "description": "Запустить режим быстрого охлаждения для кондиционера Tornado",
+      "fields": {
+        "duration": {
+          "name": "Длительность",
+          "description": "Длительность быстрого охлаждения в минутах"
+        },
+        "target_fan_mode": {
+          "name": "Целевой режим вентилятора",
+          "description": "Режим вентилятора для переключения после завершения быстрого охлаждения"
+        },
+        "starting_fan_mode": {
+          "name": "Начальный режим вентилятора",
+          "description": "Режим вентилятора для использования во время быстрого охлаждения"
+        }
+      }
+    },
+    "cancel_cooldown": {
+      "name": "Отменить быстрое охлаждение",
+      "description": "Отменить активное быстрое охлаждение для кондиционера Tornado"
     }
   }
 }

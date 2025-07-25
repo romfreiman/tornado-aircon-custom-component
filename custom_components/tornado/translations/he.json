@@ -33,6 +33,156 @@
           }
         }
       }
+    },
+    "sensor": {
+      "tornado_off_timer_status": {
+        "name": "סטטוס טיימר כיבוי",
+        "state_attributes": {
+          "timer_active": "טיימר כיבוי פעיל",
+          "timer_duration": "משך טיימר כיבוי",
+          "timer_start_time": "זמן התחלת טיימר כיבוי",
+          "timer_end_time": "זמן סיום טיימר כיבוי",
+          "target_action": "פעולת יעד",
+          "sleep_mode_active": "מצב שינה פעיל"
+        }
+      }
+    },
+    "number": {
+      "tornado_timer_duration": {
+        "name": "משך טיימר"
+      },
+      "tornado_cooldown_duration": {
+        "name": "משך קירור מהיר",
+        "state_attributes": {
+          "unit_of_measurement": "דקות"
+        }
+      }
+    },
+    "select": {
+      "tornado_cooldown_starting_fan": {
+        "name": "מאוורר התחלתי לקירור מהיר",
+        "state": {
+          "auto": "אוטומטי",
+          "low": "נמוך",
+          "medium": "בינוני",
+          "high": "גבוה",
+          "turbo": "טורבו",
+          "silent": "שקט"
+        }
+      },
+      "tornado_cooldown_target_fan": {
+        "name": "מאוורר יעד לקירור מהיר",
+        "state": {
+          "auto": "אוטומטי",
+          "low": "נמוך",
+          "medium": "בינוני",
+          "high": "גבוה",
+          "turbo": "טורבו",
+          "silent": "שקט"
+        }
+      },
+      "tornado_off_timer_duration": {
+        "name": "משך טיימר כיבוי",
+        "state": {
+          "10m": "10 דקות",
+          "30m": "30 דקות",
+          "1h": "שעה אחת",
+          "2h": "שעתיים",
+          "3h": "3 שעות",
+          "4h": "4 שעות",
+          "5h": "5 שעות",
+          "6h": "6 שעות",
+          "7h": "7 שעות",
+          "8h": "8 שעות",
+          "9h": "9 שעות",
+          "10h": "10 שעות",
+          "11h": "11 שעות",
+          "12h": "12 שעות"
+        }
+      },
+      "tornado_cooldown_duration": {
+        "name": "משך קירור מהיר",
+        "state": {
+          "1min": "דקה אחת",
+          "3min": "3 דקות",
+          "5min": "5 דקות",
+          "10min": "10 דקות",
+          "15min": "15 דקות",
+          "30min": "30 דקות"
+        }
+      }
+    },
+    "switch": {
+      "tornado_sleep_mode": {
+        "name": "מצב שינה"
+      },
+      "tornado_eco_mode": {
+        "name": "מצב חיסכון"
+      },
+      "tornado_cooldown": {
+        "name": "קירור מהיר",
+        "state_attributes": {
+          "cooldown_active": "קירור מהיר פעיל",
+          "cooldown_duration": "משך קירור מהיר",
+          "starting_fan_mode": "מצב מאוורר התחלתי",
+          "target_fan_mode": "מצב מאוורר יעד",
+          "cooldown_start_time": "זמן התחלת קירור מהיר",
+          "remaining_seconds": "שניות נותרות",
+          "remaining_minutes": "דקות נותרות"
+        }
+      },
+      "tornado_off_timer_control": {
+        "name": "טיימר כיבוי",
+        "state_attributes": {
+          "timer_active": "טיימר כיבוי פעיל",
+          "timer_duration": "משך טיימר כיבוי",
+          "timer_end_time": "זמן סיום טיימר כיבוי",
+          "remaining_seconds": "שניות נותרות",
+          "remaining_minutes": "דקות נותרות"
+        }
+      }
+    }
+  },
+  "services": {
+    "set_timer": {
+      "name": "הגדרת טיימר",
+      "description": "הגדרת טיימר עבור מזגן טורנדו",
+      "fields": {
+        "duration": {
+          "name": "משך",
+          "description": "משך הטיימר בדקות (0 לביטול)"
+        },
+        "action": {
+          "name": "פעולה",
+          "description": "מה לעשות כשהטיימר נגמר"
+        }
+      }
+    },
+    "cancel_timer": {
+      "name": "ביטול טיימר",
+      "description": "ביטול הטיימר הפעיל עבור מזגן טורנדו"
+    },
+    "start_cooldown": {
+      "name": "התחלת קירור מהיר",
+      "description": "התחלת מצב קירור מהיר עבור מזגן טורנדו",
+      "fields": {
+        "duration": {
+          "name": "משך",
+          "description": "משך הקירור המהיר בדקות"
+        },
+        "target_fan_mode": {
+          "name": "מצב מאוורר יעד",
+          "description": "מצב המאוורר לעבור אליו אחרי סיום הקירור המהיר"
+        },
+        "starting_fan_mode": {
+          "name": "מצב מאוורר התחלתי",
+          "description": "מצב המאוורר לשימוש במהלך תקופת הקירור המהיר"
+        }
+      }
+    },
+    "cancel_cooldown": {
+      "name": "ביטול קירור מהיר",
+      "description": "ביטול הקירור המהיר הפעיל עבור מזגן טורנדו"
     }
   }
 }
