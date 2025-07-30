@@ -94,7 +94,10 @@ def create_retry_decorator(
         retry=retry_if_exception_type(
             (
                 aiohttp.ClientError,
+                aiohttp.ConnectionTimeoutError,
+                aiohttp.ClientConnectionError,
                 TimeoutError,
+                asyncio.CancelledError,
                 AuxCloudConnectionError,
                 AuxCloudApiError,
             )
