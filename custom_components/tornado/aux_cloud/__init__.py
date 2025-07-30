@@ -15,7 +15,6 @@ import aiohttp
 from async_lru import alru_cache
 from tenacity import (
     retry,
-    retry_if_exception,
     retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
@@ -87,24 +86,19 @@ class AuxCloudConnectionError(AuxCloudError):
 
 
 # Add retry decorator configuration
-def _should_retry_api_error(exception: BaseException) -> bool:
-    """Check if an AuxCloudApiError should be retried (only server busy errors)."""
-    if not isinstance(exception, AuxCloudApiError):
-        return False
-
-    # Check if the error message contains server busy error codes
-    error_str = str(exception)
-    return "-2001" in error_str or "-30101" in error_str
-
-
 def create_retry_decorator(
     max_attempts: int = 3,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Create a retry decorator with specified parameters."""
     return retry(
         retry=retry_if_exception_type(
-            (aiohttp.ClientError, TimeoutError, AuxCloudConnectionError)
-        ) | retry_if_exception(_should_retry_api_error),
+            (
+                aiohttp.ClientError,
+                TimeoutError,
+                AuxCloudConnectionError,
+                AuxCloudApiError,
+            )
+        ),
         wait=wait_exponential(multiplier=1, min=4, max=10),
         stop=stop_after_attempt(max_attempts),
         before_sleep=lambda retry_state: _LOGGER.warning(

@@ -14,7 +14,6 @@ import tenacity
 
 from custom_components.tornado.aux_cloud import (
     AuxCloudAPI,
-    AuxCloudApiError,
     AuxCloudAuthError,
 )
 
@@ -299,13 +298,13 @@ async def test_list_families_network_error(
 async def test_list_families_invalid_json(
     api: AuxCloudAPI, mock_session: MagicMock, mock_response: MagicMock
 ) -> None:
-    """Test list_families handles invalid JSON response."""
+    """Test list_families handles invalid JSON response with retries."""
     api.list_families.cache_clear()
 
     mock_session.post.return_value.__aenter__.return_value = mock_response
     mock_response.text.return_value = "Invalid JSON response"
 
-    with pytest.raises(AuxCloudApiError):
+    with pytest.raises(tenacity.RetryError):
         await api.list_families()
 
     api.list_families.cache_clear()
@@ -592,13 +591,13 @@ async def test_query_device_temperature_success(
 async def test_query_device_temperature_failure(
     api: AuxCloudAPI, mock_session: MagicMock, mock_response: MagicMock
 ) -> None:
-    """Test device temperature query failure."""
+    """Test device temperature query failure with retries."""
     mock_session.post.return_value.__aenter__.return_value = mock_response
     mock_response.text.return_value = json.dumps(
         {"event": {"payload": {"status": -1, "msg": "Temperature query failed"}}}
     )
 
-    with pytest.raises(AuxCloudApiError, match="Failed to query device temperature"):
+    with pytest.raises(tenacity.RetryError):
         await api.query_device_temperature("dev1", "sess1")
 
 
