@@ -92,7 +92,7 @@ def create_retry_decorator(
     """Create a retry decorator with specified parameters."""
     return retry(
         retry=retry_if_exception_type(
-            (aiohttp.ClientError, TimeoutError, AuxCloudConnectionError)
+            (aiohttp.ClientError, TimeoutError, AuxCloudConnectionError, AuxCloudApiError)
         ),
         wait=wait_exponential(multiplier=1, min=4, max=10),
         stop=stop_after_attempt(max_attempts),
@@ -535,7 +535,7 @@ class AuxCloudAPI:
                     if not isinstance(params_result, Exception):
                         dev["params"] = params_result
 
-                    if not isinstance(ambient_result, Exception):
+                    if not isinstance(ambient_result, Exception) and "params" in dev:
                         dev["params"]["envtemp"] = ambient_result["envtemp"]
                     _LOGGER.debug("Processed device: %s", dev)
                     processed_devices.append(dev)
