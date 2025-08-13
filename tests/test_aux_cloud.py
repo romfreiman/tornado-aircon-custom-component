@@ -295,6 +295,85 @@ async def test_list_families_network_error(
 
 
 @pytest.mark.asyncio
+async def test_list_families_cancelled_error(
+    api: AuxCloudAPI, mock_session: MagicMock
+) -> None:
+    """Test list_families handles CancelledError with retry logic."""
+    try:
+        api.list_families.cache_clear()
+
+        mock_session.post.side_effect = asyncio.CancelledError("Request cancelled")
+
+        with pytest.raises(tenacity.RetryError) as exc_info:
+            await api.list_families()
+
+        assert isinstance(
+            exc_info.value.last_attempt.exception(), asyncio.CancelledError
+        )
+        assert str(exc_info.value.last_attempt.exception()) == "Request cancelled"
+
+        assert mock_session.post.call_count == NUM_OF_API_RETRIES
+
+    finally:
+        api.list_families.cache_clear()
+        await asyncio.sleep(0.1)
+
+
+@pytest.mark.asyncio
+async def test_list_families_connection_timeout_error(
+    api: AuxCloudAPI, mock_session: MagicMock
+) -> None:
+    """Test list_families handles ConnectionTimeoutError with retry logic."""
+    try:
+        api.list_families.cache_clear()
+
+        mock_session.post.side_effect = aiohttp.ConnectionTimeoutError(
+            "Connection timeout"
+        )
+
+        with pytest.raises(tenacity.RetryError) as exc_info:
+            await api.list_families()
+
+        assert isinstance(
+            exc_info.value.last_attempt.exception(), aiohttp.ConnectionTimeoutError
+        )
+        assert str(exc_info.value.last_attempt.exception()) == "Connection timeout"
+
+        assert mock_session.post.call_count == NUM_OF_API_RETRIES
+
+    finally:
+        api.list_families.cache_clear()
+        await asyncio.sleep(0.1)
+
+
+@pytest.mark.asyncio
+async def test_list_families_client_connection_error(
+    api: AuxCloudAPI, mock_session: MagicMock
+) -> None:
+    """Test list_families handles ClientConnectionError with retry logic."""
+    try:
+        api.list_families.cache_clear()
+
+        mock_session.post.side_effect = aiohttp.ClientConnectionError(
+            "Connection error"
+        )
+
+        with pytest.raises(tenacity.RetryError) as exc_info:
+            await api.list_families()
+
+        assert isinstance(
+            exc_info.value.last_attempt.exception(), aiohttp.ClientConnectionError
+        )
+        assert str(exc_info.value.last_attempt.exception()) == "Connection error"
+
+        assert mock_session.post.call_count == NUM_OF_API_RETRIES
+
+    finally:
+        api.list_families.cache_clear()
+        await asyncio.sleep(0.1)
+
+
+@pytest.mark.asyncio
 async def test_list_families_invalid_json(
     api: AuxCloudAPI, mock_session: MagicMock, mock_response: MagicMock
 ) -> None:
@@ -599,6 +678,48 @@ async def test_query_device_temperature_failure(
 
     with pytest.raises(tenacity.RetryError):
         await api.query_device_temperature("dev1", "sess1")
+
+
+@pytest.mark.asyncio
+async def test_query_device_temperature_cancelled_error(
+    api: AuxCloudAPI, mock_session: MagicMock
+) -> None:
+    """Test device temperature query handles CancelledError with retries."""
+    mock_session.post.side_effect = asyncio.CancelledError("Request cancelled")
+
+    with pytest.raises(tenacity.RetryError) as exc_info:
+        await api.query_device_temperature("dev1", "sess1")
+
+    assert isinstance(exc_info.value.last_attempt.exception(), asyncio.CancelledError)
+    assert mock_session.post.call_count == NUM_OF_API_RETRIES
+
+
+@pytest.mark.asyncio
+async def test_query_device_state_cancelled_error(
+    api: AuxCloudAPI, mock_session: MagicMock
+) -> None:
+    """Test device state query handles CancelledError with retries."""
+    mock_session.post.side_effect = asyncio.CancelledError("Request cancelled")
+
+    with pytest.raises(tenacity.RetryError) as exc_info:
+        await api.query_device_state("dev1", "sess1")
+
+    assert isinstance(exc_info.value.last_attempt.exception(), asyncio.CancelledError)
+    assert mock_session.post.call_count == NUM_OF_API_RETRIES
+
+
+@pytest.mark.asyncio
+async def test_list_devices_cancelled_error(
+    api: AuxCloudAPI, mock_session: MagicMock
+) -> None:
+    """Test list_devices handles CancelledError with retries."""
+    mock_session.post.side_effect = asyncio.CancelledError("Request cancelled")
+
+    with pytest.raises(tenacity.RetryError) as exc_info:
+        await api.list_devices("family1")
+
+    assert isinstance(exc_info.value.last_attempt.exception(), asyncio.CancelledError)
+    assert mock_session.post.call_count == NUM_OF_API_RETRIES
 
 
 @pytest.mark.asyncio
