@@ -1251,7 +1251,7 @@ async def test_get_shared_session() -> None:
     """Test get_shared_session creates and reuses session."""
     # Clean up any existing shared resources first
     await AuxCloudAPI.cleanup_shared_resources()
-    
+
     try:
         session1 = await AuxCloudAPI.get_shared_session()
         assert isinstance(session1, aiohttp.ClientSession)
