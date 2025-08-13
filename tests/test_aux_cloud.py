@@ -113,9 +113,6 @@ async def test_login_error_handling(
 ) -> None:
     """Test failed login using a fake client session that simulates a failed login."""
     mock_session.post.return_value = mock_response
-    api = AuxCloudAPI(
-        "test@example.com", "wrongpassword", session=mock_session, region="eu"
-    )
 
     class FakeResponse:
         async def __aenter__(self) -> "FakeResponse":
@@ -151,11 +148,21 @@ async def test_login_error_handling(
             _ = url, kwargs
             return FakeResponse()
 
-    with (
-        patch("aiohttp.ClientSession", FakeClientSession),
-        pytest.raises(AuxCloudAuthError, match="Login failed: Invalid credentials"),
+    # Use a provided session instead of creating shared resources
+    with patch.object(
+        AuxCloudAPI, "get_shared_session", AsyncMock(return_value=mock_session)
     ):
-        await api.login()
+        api = AuxCloudAPI(
+            "test@example.com", "wrongpassword", session=mock_session, region="eu"
+        )
+
+        with (
+            patch("aiohttp.ClientSession", FakeClientSession),
+            pytest.raises(AuxCloudAuthError, match="Login failed: Invalid credentials"),
+        ):
+            await api.login()
+
+        await api.cleanup()
 
 
 @pytest.mark.asyncio
