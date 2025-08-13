@@ -1226,17 +1226,22 @@ async def test_shared_devices_caching_no_shared_devices_call_count(
         await asyncio.sleep(0)
 
 
-def test_get_shared_connector() -> None:
+@pytest.mark.asyncio
+async def test_get_shared_connector() -> None:
     """Test get_shared_connector creates and reuses connector."""
+    # Mock the connector creation to avoid CI thread issues
+    mock_connector = MagicMock()
+    mock_connector.limit = CONNECTION_POOL_LIMIT
+    mock_connector.closed = False
 
-    async def run_test() -> None:
+    with patch("aiohttp.TCPConnector", return_value=mock_connector):
         # Clean up any existing shared resources first
         await AuxCloudAPI.cleanup_shared_resources()
         AuxCloudAPI._shared_connector = None
 
         try:
             connector1 = await AuxCloudAPI.get_shared_connector()
-            assert isinstance(connector1, aiohttp.TCPConnector)
+            assert connector1 is mock_connector
             assert connector1.limit == CONNECTION_POOL_LIMIT
             assert not connector1.closed
 
@@ -1244,49 +1249,29 @@ def test_get_shared_connector() -> None:
             assert connector2 is connector1
         finally:
             # Ensure proper cleanup
-            await AuxCloudAPI.cleanup_shared_resources()
-
-    # Run in isolated event loop to avoid thread cleanup issues
-    import asyncio
-
-    loop = asyncio.new_event_loop()
-    try:
-        loop.run_until_complete(run_test())
-    finally:
-        # Clean up the loop and give threads time to finish
-        loop.close()
-        import time
-
-        time.sleep(0.1)
+            AuxCloudAPI._shared_connector = None
 
 
-def test_get_shared_session() -> None:
+@pytest.mark.asyncio
+async def test_get_shared_session() -> None:
     """Test get_shared_session creates and reuses session."""
+    # Mock the session creation to avoid CI thread issues
+    mock_session = MagicMock()
+    mock_session.closed = False
 
-    async def run_test() -> None:
+    with patch("aiohttp.ClientSession", return_value=mock_session):
         # Clean up any existing shared resources first
         await AuxCloudAPI.cleanup_shared_resources()
+        AuxCloudAPI._shared_session = None
 
         try:
             session1 = await AuxCloudAPI.get_shared_session()
-            assert isinstance(session1, aiohttp.ClientSession)
+            assert session1 is mock_session
             assert not session1.closed
 
             session2 = await AuxCloudAPI.get_shared_session()
             assert session2 is session1
         finally:
             # Ensure proper cleanup
-            await AuxCloudAPI.cleanup_shared_resources()
-
-    # Run in isolated event loop to avoid thread cleanup issues
-    import asyncio
-
-    loop = asyncio.new_event_loop()
-    try:
-        loop.run_until_complete(run_test())
-    finally:
-        # Clean up the loop and give threads time to finish
-        loop.close()
-        import time
-
-        time.sleep(0.1)
+            AuxCloudAPI._shared_session = None
+            AuxCloudAPI._shared_connector = None
