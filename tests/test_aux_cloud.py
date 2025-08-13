@@ -1229,35 +1229,36 @@ async def test_shared_devices_caching_no_shared_devices_call_count(
 @pytest.mark.asyncio
 async def test_get_shared_connector() -> None:
     """Test get_shared_connector creates and reuses connector."""
+    # Clean up any existing shared resources first
+    await AuxCloudAPI.cleanup_shared_resources()
     AuxCloudAPI._shared_connector = None
 
-    connector1 = await AuxCloudAPI.get_shared_connector()
-    assert isinstance(connector1, aiohttp.TCPConnector)
-    assert connector1.limit == CONNECTION_POOL_LIMIT
-    assert not connector1.closed
+    try:
+        connector1 = await AuxCloudAPI.get_shared_connector()
+        assert isinstance(connector1, aiohttp.TCPConnector)
+        assert connector1.limit == CONNECTION_POOL_LIMIT
+        assert not connector1.closed
 
-    connector2 = await AuxCloudAPI.get_shared_connector()
-    assert connector2 is connector1
-
-    await connector1.close()
-    AuxCloudAPI._shared_connector = None
+        connector2 = await AuxCloudAPI.get_shared_connector()
+        assert connector2 is connector1
+    finally:
+        # Ensure proper cleanup
+        await AuxCloudAPI.cleanup_shared_resources()
 
 
 @pytest.mark.asyncio
 async def test_get_shared_session() -> None:
     """Test get_shared_session creates and reuses session."""
-    AuxCloudAPI._shared_session = None
-    AuxCloudAPI._shared_connector = None
+    # Clean up any existing shared resources first
+    await AuxCloudAPI.cleanup_shared_resources()
+    
+    try:
+        session1 = await AuxCloudAPI.get_shared_session()
+        assert isinstance(session1, aiohttp.ClientSession)
+        assert not session1.closed
 
-    session1 = await AuxCloudAPI.get_shared_session()
-    assert isinstance(session1, aiohttp.ClientSession)
-    assert not session1.closed
-
-    session2 = await AuxCloudAPI.get_shared_session()
-    assert session2 is session1
-
-    await session1.close()
-    if session1.connector:
-        await session1.connector.close()
-    AuxCloudAPI._shared_session = None
-    AuxCloudAPI._shared_connector = None
+        session2 = await AuxCloudAPI.get_shared_session()
+        assert session2 is session1
+    finally:
+        # Ensure proper cleanup
+        await AuxCloudAPI.cleanup_shared_resources()
