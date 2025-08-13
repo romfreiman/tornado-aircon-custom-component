@@ -1228,7 +1228,7 @@ async def test_shared_devices_caching_no_shared_devices_call_count(
 
 def test_get_shared_connector() -> None:
     """Test get_shared_connector creates and reuses connector."""
-    async def run_test():
+    async def run_test() -> None:
         # Clean up any existing shared resources first
         await AuxCloudAPI.cleanup_shared_resources()
         AuxCloudAPI._shared_connector = None
@@ -1259,7 +1259,7 @@ def test_get_shared_connector() -> None:
 
 def test_get_shared_session() -> None:
     """Test get_shared_session creates and reuses session."""
-    async def run_test():
+    async def run_test() -> None:
         # Clean up any existing shared resources first
         await AuxCloudAPI.cleanup_shared_resources()
 
