@@ -1228,6 +1228,7 @@ async def test_shared_devices_caching_no_shared_devices_call_count(
 
 def test_get_shared_connector() -> None:
     """Test get_shared_connector creates and reuses connector."""
+
     async def run_test() -> None:
         # Clean up any existing shared resources first
         await AuxCloudAPI.cleanup_shared_resources()
@@ -1247,6 +1248,7 @@ def test_get_shared_connector() -> None:
 
     # Run in isolated event loop to avoid thread cleanup issues
     import asyncio
+
     loop = asyncio.new_event_loop()
     try:
         loop.run_until_complete(run_test())
@@ -1254,11 +1256,13 @@ def test_get_shared_connector() -> None:
         # Clean up the loop and give threads time to finish
         loop.close()
         import time
+
         time.sleep(0.1)
 
 
 def test_get_shared_session() -> None:
     """Test get_shared_session creates and reuses session."""
+
     async def run_test() -> None:
         # Clean up any existing shared resources first
         await AuxCloudAPI.cleanup_shared_resources()
@@ -1276,6 +1280,7 @@ def test_get_shared_session() -> None:
 
     # Run in isolated event loop to avoid thread cleanup issues
     import asyncio
+
     loop = asyncio.new_event_loop()
     try:
         loop.run_until_complete(run_test())
@@ -1283,4 +1288,5 @@ def test_get_shared_session() -> None:
         # Clean up the loop and give threads time to finish
         loop.close()
         import time
+
         time.sleep(0.1)
