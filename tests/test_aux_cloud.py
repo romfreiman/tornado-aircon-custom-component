@@ -1244,6 +1244,8 @@ async def test_get_shared_connector() -> None:
     finally:
         # Ensure proper cleanup
         await AuxCloudAPI.cleanup_shared_resources()
+        # Add a small delay to allow background threads to finish
+        await asyncio.sleep(0.1)
 
 
 @pytest.mark.asyncio
@@ -1262,3 +1264,5 @@ async def test_get_shared_session() -> None:
     finally:
         # Ensure proper cleanup
         await AuxCloudAPI.cleanup_shared_resources()
+        # Add a small delay to allow background threads to finish
+        await asyncio.sleep(0.1)
