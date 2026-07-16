@@ -123,13 +123,21 @@ class AuxCloudAPI:
         """Get or create shared connector."""
         async with cls._shared_connector_lock:
             if cls._shared_connector is None or cls._shared_connector.closed:
+                # force_close=True: never reuse a pooled connection across
+                # requests. AUX Cloud's own idle-connection timeout is shorter
+                # than the poll interval (~1-4 min), so a kept-alive connection
+                # is always stale by the next poll — reusing it risks an
+                # instantly-failing "poisoned" connection (see #29, made far
+                # more likely by HA core 2026.7's aiohttp 3.13.5->3.14.1 bump).
+                # list_families()/_has_shared_devices() are cached for an
+                # hour, so there's normally only one live request per poll
+                # anyway — keep-alive reuse buys nothing here, just risk.
                 cls._shared_connector = aiohttp.TCPConnector(
                     limit=10,
                     ttl_dns_cache=300,  # Cache DNS results for 5 minutes
                     use_dns_cache=True,
                     family=socket.AF_INET,
-                    keepalive_timeout=120,
-                    force_close=False,
+                    force_close=True,
                 )
                 _LOGGER.info("Created new connector: %s", id(cls._shared_connector))
 
@@ -839,7 +847,16 @@ class AuxCloudAPI:
                 self.list_devices(family["familyid"], shared=True)
                 for family in family_data
             ]
-            await asyncio.gather(*tasks)
+            # return_exceptions=True: one family/group failing must not cancel
+            # its siblings' still-in-flight requests on the shared connector
+            # (see #29 — a cancelled read can leave a broken connection in the
+            # shared keep-alive pool for the next poll to trip over).
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for result in results:
+                if isinstance(result, Exception):
+                    _LOGGER.warning(
+                        "Error refreshing a family/device group: %s", result
+                    )
         except Exception:
             _LOGGER.exception("Error refreshing data")
             raise
