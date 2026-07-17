@@ -31,6 +31,23 @@ TEST_SHARED_DEVICES_CALL_COUNT = 3
 TEST_MIN_DEVICE_COUNT = 2
 
 
+@pytest.fixture(autouse=True)
+def _reset_shared_client_state() -> AsyncGenerator[None, None]:
+    """
+    Reset AuxCloudAPI's class-level shared session/connector between tests.
+
+    Without this, a fake/mocked session or connector left behind by one test
+    (e.g. a bare stub without a `.closed` attribute) leaks into the next test
+    via the shared classvars, since `cleanup_shared_resources` is invoked by
+    the retry path (see #29) and inspects `_shared_session`/`_shared_connector`.
+    """
+    AuxCloudAPI._shared_session = None
+    AuxCloudAPI._shared_connector = None
+    yield
+    AuxCloudAPI._shared_session = None
+    AuxCloudAPI._shared_connector = None
+
+
 @pytest.fixture
 def mock_response() -> MagicMock:
     """Mock aiohttp response."""
@@ -1107,6 +1124,11 @@ async def test_get_shared_connector() -> None:
     assert isinstance(connector1, aiohttp.TCPConnector)
     assert connector1.limit == CONNECTION_POOL_LIMIT
     assert not connector1.closed
+    # Regression test for #29: connections must never be pooled/reused across
+    # requests, since AUX Cloud's own idle-connection timeout is shorter than
+    # the poll interval — a kept-alive connection is always stale by the next
+    # poll and fails instantly when reused (a "poisoned" pooled connection).
+    assert connector1.force_close is True
 
     connector2 = await AuxCloudAPI.get_shared_connector()
     assert connector2 is connector1

@@ -7,6 +7,14 @@ aiohttp==3.11.11
 aiohttp-cors==0.7.0
 aiohttp-fast-zlib==0.2.0
 async-lru==2.0.4
+# aiodns==3.2.0 (pinned transitively by homeassistant==2025.1.4) is
+# incompatible with pycares>=5, which changed Channel.getaddrinfo()'s
+# signature (breaks test_dns_cache). Pin below 5 but require >=4.9 for the
+# CVE-2025-48945 fix (Channel use-after-free) - the resulting background
+# "safe shutdown" thread is handled by tests/conftest.py so it doesn't trip
+# the test suite's lingering-thread check. Unrelated to this PR's fix, but
+# was failing CI on main before this change too.
+pycares>=4.9,<5
 pytest-aiohttp==1.0.5
 pytest-asyncio==0.24.0
 dataclasses-json==0.5.14
