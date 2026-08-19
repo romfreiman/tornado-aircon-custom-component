@@ -37,6 +37,7 @@ To set up the Tornado Air Conditioner integration in Home Assistant:
 ## Features
 
 - Control power, mode, temperature, and fan speed of your Tornado Aircon units.
+- Control vertical and horizontal swing independently.
 - Monitor current temperature, humidity, and operational status.
 - Automate your air conditioning based on Home Assistant automations.
 
