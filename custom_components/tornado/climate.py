@@ -152,6 +152,8 @@ class AuxCloudDataUpdateCoordinator(DataUpdateCoordinator):
 class TornadoClimateEntity(ClimateEntity):
     """Representation of a Tornado AC Climate device."""
 
+    should_poll = False
+
     def __init__(
         self,
         hass: HomeAssistant,
@@ -214,7 +216,11 @@ class TornadoClimateEntity(ClimateEntity):
     @property
     def available(self) -> bool:
         """Return if entity is available."""
-        return self._coordinator.last_update_success and self._device is not None
+        return (
+            self._coordinator.last_update_success
+            and self._device is not None
+            and self._attr_available
+        )
 
     @property
     def _device(self) -> dict | None:
@@ -249,19 +255,47 @@ class TornadoClimateEntity(ClimateEntity):
 
         if not self._device:
             self._attr_available = False
+            _LOGGER.warning(
+                "Device %s is missing from coordinator data", self._device_id
+            )
             self.async_write_ha_state()
             return
 
         try:
-            device_params = self._device.get("params", {})
+            device_params = self._device.get("params")
+            if not isinstance(device_params, dict):
+                _LOGGER.warning(
+                    "Invalid params for device %s: expected a dictionary, got %s",
+                    self._device_id,
+                    type(device_params).__name__,
+                )
+                self._attr_available = False
+                self.async_write_ha_state()
+                return
+
+            required_fields = {"pwr", "ac_mode", "temp", "envtemp"}
+            missing_fields = {
+                field
+                for field in required_fields
+                if field not in device_params or device_params[field] is None
+            }
+            if missing_fields:
+                _LOGGER.warning(
+                    "Incomplete params for device %s; missing fields: %s",
+                    self._device_id,
+                    ", ".join(sorted(missing_fields)),
+                )
+                self._attr_available = False
+                self.async_write_ha_state()
+                return
 
             # Update power and HVAC mode/action
-            if not device_params.get("pwr", 0):
+            if device_params["pwr"] == 0:
                 self._attr_hvac_mode = HVACMode.OFF
                 self._attr_hvac_action = HVACAction.OFF
             else:
                 self._attr_hvac_mode = HVAC_MODE_MAP.get(
-                    device_params.get("ac_mode", 0), HVACMode.OFF
+                    device_params["ac_mode"], HVACMode.OFF
                 )
                 self._attr_hvac_action = {
                     HVACMode.COOL: HVACAction.COOLING,
@@ -275,8 +309,8 @@ class TornadoClimateEntity(ClimateEntity):
             self._attr_fan_mode = FAN_MODE_MAP.get(
                 device_params.get("ac_mark", 0), "auto"
             )
-            self._attr_target_temperature = device_params.get("temp", 0) / 10
-            self._attr_current_temperature = device_params.get("envtemp", 0) / 10
+            self._attr_target_temperature = device_params["temp"] / 10
+            self._attr_current_temperature = device_params["envtemp"] / 10
             # Update vertical and horizontal swing independently
             v_dir = device_params.get("ac_vdir", 0)
             h_dir = device_params.get("ac_hdir", 0)
@@ -300,10 +334,6 @@ class TornadoClimateEntity(ClimateEntity):
             self._attr_available = False
 
         self.async_write_ha_state()
-
-    async def async_update(self) -> None:
-        """Update the entity."""
-        await self._coordinator.async_request_refresh()
 
     async def _set_device_params(self, params: dict) -> None:
         """Set device parameters and handle any errors."""

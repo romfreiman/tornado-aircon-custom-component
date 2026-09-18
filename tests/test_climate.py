@@ -97,7 +97,7 @@ async def test_climate_entity_initialization(entity: TornadoClimateEntity) -> No
 
 async def test_climate_update(entity: TornadoClimateEntity) -> None:
     """Test climate entity state updates."""
-    await entity.async_update()
+    entity._handle_coordinator_update()
 
     assert entity.hvac_mode == HVACMode.COOL
     assert entity.hvac_action == HVACAction.COOLING
@@ -107,6 +107,11 @@ async def test_climate_update(entity: TornadoClimateEntity) -> None:
     assert entity.swing_mode == SWING_ON
     assert entity.swing_horizontal_mode == SWING_OFF
     assert entity.available is True
+
+
+async def test_entity_does_not_poll(entity: TornadoClimateEntity) -> None:
+    """Test that coordinator updates are the only refresh path."""
+    assert entity.should_poll is False
 
 
 async def test_set_temperature(
@@ -269,17 +274,154 @@ async def test_coordinator_update_with_invalid_data(
     coordinator: AuxCloudDataUpdateCoordinator, entity: TornadoClimateEntity
 ) -> None:
     """Test coordinator update with invalid data."""
+    previous_state = (
+        entity.hvac_mode,
+        entity.hvac_action,
+        entity.fan_mode,
+        entity.target_temperature,
+        entity.current_temperature,
+    )
+
     # Test with missing device
     coordinator.data = {}
-    await entity.async_update()
-    assert entity.available  # Entity remains available even without data
-    assert entity.hvac_mode == HVACMode.COOL  # Retains last known mode
+    entity._handle_coordinator_update()
+    assert entity.available is False
+    assert (
+        entity.hvac_mode,
+        entity.hvac_action,
+        entity.fan_mode,
+        entity.target_temperature,
+        entity.current_temperature,
+    ) == previous_state
 
     # Test with invalid params
     coordinator.data = {MOCK_DEVICE["endpointId"]: {"params": {}}}
-    await entity.async_update()
-    assert entity.available
-    assert entity.hvac_mode == HVACMode.COOL  # Retains last known mode
+    entity._handle_coordinator_update()
+    assert entity.available is False
+    assert (
+        entity.hvac_mode,
+        entity.hvac_action,
+        entity.fan_mode,
+        entity.target_temperature,
+        entity.current_temperature,
+    ) == previous_state
+
+    # A complete response restores state and availability.
+    coordinator.data = {MOCK_DEVICE["endpointId"]: MOCK_DEVICE}
+    entity._handle_coordinator_update()
+    assert entity.available is True
+    assert entity.hvac_mode == HVACMode.COOL
+    assert entity.target_temperature == TARGET_TEMP
+    assert entity.current_temperature == CURRENT_TEMP
+
+
+@pytest.mark.parametrize("missing_field", ["pwr", "ac_mode", "temp", "envtemp"])
+async def test_missing_required_field_keeps_previous_state(
+    coordinator: AuxCloudDataUpdateCoordinator,
+    entity: TornadoClimateEntity,
+    missing_field: str,
+) -> None:
+    """Test that incomplete snapshots do not fabricate climate state."""
+    previous_state = (
+        entity.hvac_mode,
+        entity.hvac_action,
+        entity.fan_mode,
+        entity.target_temperature,
+        entity.current_temperature,
+    )
+    incomplete_params = MOCK_DEVICE["params"].copy()
+    incomplete_params.pop(missing_field)
+    coordinator.data = {
+        MOCK_DEVICE["endpointId"]: {
+            **MOCK_DEVICE,
+            "params": incomplete_params,
+        }
+    }
+
+    entity._handle_coordinator_update()
+
+    assert entity.available is False
+    assert (
+        entity.hvac_mode,
+        entity.hvac_action,
+        entity.fan_mode,
+        entity.target_temperature,
+        entity.current_temperature,
+    ) == previous_state
+
+
+async def test_none_required_field_is_unavailable(
+    coordinator: AuxCloudDataUpdateCoordinator, entity: TornadoClimateEntity
+) -> None:
+    """Test that a null required value is treated as incomplete."""
+    params = MOCK_DEVICE["params"].copy()
+    params["envtemp"] = None
+    coordinator.data = {
+        MOCK_DEVICE["endpointId"]: {
+            **MOCK_DEVICE,
+            "params": params,
+        }
+    }
+
+    entity._handle_coordinator_update()
+
+    assert entity.available is False
+    assert entity.current_temperature == CURRENT_TEMP
+
+
+async def test_non_dictionary_params_are_unavailable(
+    coordinator: AuxCloudDataUpdateCoordinator, entity: TornadoClimateEntity
+) -> None:
+    """Test that a non-dictionary params response is rejected."""
+    coordinator.data = {
+        MOCK_DEVICE["endpointId"]: {
+            **MOCK_DEVICE,
+            "params": None,
+        }
+    }
+
+    entity._handle_coordinator_update()
+
+    assert entity.available is False
+    assert entity.hvac_mode == HVACMode.COOL
+    assert entity.target_temperature == TARGET_TEMP
+    assert entity.current_temperature == CURRENT_TEMP
+
+
+async def test_complete_off_snapshot_is_available(
+    coordinator: AuxCloudDataUpdateCoordinator, entity: TornadoClimateEntity
+) -> None:
+    """Test that pwr=0 is accepted as a genuine complete off state."""
+    coordinator.data = {
+        MOCK_DEVICE["endpointId"]: {
+            **MOCK_DEVICE,
+            "params": {
+                **MOCK_DEVICE["params"],
+                "pwr": 0,
+            },
+        }
+    }
+
+    entity._handle_coordinator_update()
+
+    assert entity.available is True
+    assert entity.hvac_mode == HVACMode.OFF
+    assert entity.hvac_action == HVACAction.OFF
+    assert entity.target_temperature == TARGET_TEMP
+    assert entity.current_temperature == CURRENT_TEMP
+
+
+async def test_coordinator_failure_makes_entity_unavailable(
+    coordinator: AuxCloudDataUpdateCoordinator, entity: TornadoClimateEntity
+) -> None:
+    """Test that coordinator/network failures override entity availability."""
+    assert entity.available is True
+
+    coordinator.last_update_success = False
+    assert entity.available is False
+
+    coordinator.last_update_success = True
+    assert entity.available is True
 
 
 async def test_set_invalid_temperature(
