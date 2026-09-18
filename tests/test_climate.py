@@ -27,6 +27,8 @@ MIN_TEMP = 16
 MAX_TEMP = 32
 CURRENT_TEMP = 27.0
 TARGET_TEMP = 25.0
+PARTIAL_TEMP_RAW = 230
+PARTIAL_TARGET_TEMP = 23.0
 
 MOCK_DEVICE = {
     "endpointId": "test_device_id",
@@ -147,6 +149,55 @@ async def test_coordinator_update_error(
     with pytest.raises(Exception, match="API Error"):
         # ruff: noqa: SLF001
         await coordinator._async_update_data()
+
+
+async def test_coordinator_retains_last_complete_params_on_partial_response(
+    coordinator: AuxCloudDataUpdateCoordinator,
+    entity: TornadoClimateEntity,
+    mock_api: MagicMock,
+) -> None:
+    """Transient parameter failures retain the last valid climate state."""
+    mock_api.get_devices.return_value = [
+        {
+            **MOCK_DEVICE,
+            "params": None,
+        }
+    ]
+
+    await coordinator.async_refresh()
+
+    assert coordinator.data[MOCK_DEVICE["endpointId"]]["params"] == MOCK_DEVICE[
+        "params"
+    ]
+    assert entity.available is True
+    assert entity.current_temperature == CURRENT_TEMP
+
+
+async def test_coordinator_merges_partial_params_with_last_complete_snapshot(
+    coordinator: AuxCloudDataUpdateCoordinator,
+    entity: TornadoClimateEntity,
+    mock_api: MagicMock,
+) -> None:
+    """Partial parameter responses retain missing values from the last poll."""
+    mock_api.get_devices.return_value = [
+        {
+            **MOCK_DEVICE,
+            "params": {
+                "pwr": 1,
+                "ac_mode": 0,
+                "temp": PARTIAL_TEMP_RAW,
+            },
+        }
+    ]
+
+    await coordinator.async_refresh()
+
+    params = coordinator.data[MOCK_DEVICE["endpointId"]]["params"]
+    assert params["temp"] == PARTIAL_TEMP_RAW
+    assert params["envtemp"] == MOCK_DEVICE["params"]["envtemp"]
+    assert entity.available is True
+    assert entity.target_temperature == PARTIAL_TARGET_TEMP
+    assert entity.current_temperature == CURRENT_TEMP
 
 
 @pytest.fixture(autouse=True)

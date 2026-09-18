@@ -57,6 +57,8 @@ FAN_MODE_MAP_REVERSE = {v: k for k, v in FAN_MODE_MAP.items()}
 # Available swing modes
 SWING_MODES = [SWING_OFF, SWING_ON]
 
+REQUIRED_DEVICE_PARAMS = {"pwr", "ac_mode", "temp", "envtemp"}
+
 # Parameter validation
 PARAMETER_VALIDATION = {
     "ac_vdir": {"type": int, "range": (0, 1), "required": False},
@@ -142,11 +144,54 @@ class AuxCloudDataUpdateCoordinator(DataUpdateCoordinator):
 
             devices = await self.api.get_devices()
             _LOGGER.debug("Coordinator fetched data: %s", devices)
-            return {device["endpointId"]: device for device in devices}
+            previous_data = self.data if isinstance(self.data, dict) else {}
+            return {
+                device["endpointId"]: _retain_last_complete_params(
+                    device, previous_data.get(device["endpointId"])
+                )
+                for device in devices
+            }
         except Exception as err:
             _LOGGER.exception("Error fetching data")
             error_msg = f"Error fetching data: {err}"
             raise UpdateFailed(error_msg) from err
+
+
+def _retain_last_complete_params(
+    device: dict[str, Any], previous_device: dict[str, Any] | None
+) -> dict[str, Any]:
+    """Retain the last complete parameter snapshot across transient failures."""
+    if not isinstance(previous_device, dict):
+        return device
+
+    previous_params = previous_device.get("params")
+    if not _has_complete_params(previous_params):
+        return device
+
+    current_params = device.get("params")
+    if _has_complete_params(current_params):
+        return device
+
+    merged_params = dict(previous_params)
+    if isinstance(current_params, dict):
+        merged_params.update(current_params)
+
+    _LOGGER.warning(
+        "Device %s returned incomplete params; retaining its last complete "
+        "parameter snapshot",
+        device.get("endpointId", "unknown"),
+    )
+    retained_device = dict(device)
+    retained_device["params"] = merged_params
+    return retained_device
+
+
+def _has_complete_params(params: Any) -> bool:
+    """Return whether all climate parameters are present and non-null."""
+    return isinstance(params, dict) and all(
+        field in params and params[field] is not None
+        for field in REQUIRED_DEVICE_PARAMS
+    )
 
 
 class TornadoClimateEntity(ClimateEntity):
